@@ -264,6 +264,29 @@ void epsilon_file_material(material_data *md, vector3 p);
 bool susceptibility_equal(const susceptibility &s1, const susceptibility &s2);
 bool susceptibility_list_equal(const susceptibility_list &s1, const susceptibility_list &s2);
 bool medium_struct_equal(const medium_struct *m1, const medium_struct *m2);
+
+/* What the stability analysis in stability.cpp concluded about one medium.
+   Separated from the warning it produces so that it can be asserted on. */
+struct stability_report {
+  // Resolutions past this are not worth recommending.
+  static const int res_max = 16384;
+
+  bool growing;      // the estimate exceeds one, so the medium needs a warning
+  bool electric;     // whether it was an electric or a magnetic susceptibility
+  double rho;        // estimated growth per timestep
+  double omega_0;    // frequency of the pole carrying that growth
+  double resolution; // smallest resolution estimated stable, or 0 if none is
+  bool low_eps_inf;  // instantaneous epsilon below 1, which no timestep fixes
+};
+
+stability_report analyze_medium_stability(const medium_struct *mm, const meep::grid_volume &gv,
+                                          double dt, double Courant);
+
+/* Warn if this medium cannot be timestepped stably on the given grid.  Media
+   already present in `checked` are skipped, so a geometry that repeats one
+   material is analysed once. */
+void check_medium_stability_once(const medium_struct *mm, const meep::grid_volume &gv, double dt,
+                                 double Courant, std::vector<const medium_struct *> &checked);
 void material_gc(material_type m);
 void material_free(material_type m);
 bool material_type_equal(const material_type m1, const material_type m2);
