@@ -44,6 +44,7 @@ TESTS =                                        \
     $(TEST_DIR)/test_array_metadata.py         \
     $(TEST_DIR)/test_bend_flux.py              \
     $(TEST_DIR)/test_binary_partition_utils.py \
+    $(TEST_DIR)/test_mesh_refinement.py \
     $(BINARY_GRATING_TEST)                     \
     $(TEST_DIR)/test_boundaries_1D.py          \
     $(TEST_DIR)/test_cavity_arrayslice.py      \

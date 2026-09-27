@@ -1656,6 +1656,7 @@ PyObject *_get_array_slice_dimensions(meep::fields *f, const meep::volume &where
     from .simulation import (
         Absorber,
         BinaryPartition,
+        Refinement,
         Ldos,
         EnergyRegion,
         FluxRegion,

@@ -1252,7 +1252,15 @@ static std::unique_ptr<meep::binary_partition> py_bp_to_bp(PyObject *pybp) {
     meep::abort("BinaryPartition class object is incorrectly defined.");
   }
 
-  if (PyLong_Check(id)) { bp.reset(new meep::binary_partition(PyLong_AsLong(id))); }
+  // refine_factor is resolved from the leaf's resolution against the
+  // simulation's before we get here; absent or None means unrefined.
+  int refine = 1;
+  PyObject *rf = PyObject_GetAttrString(pybp, "refine_factor");
+  if (rf && PyLong_Check(rf)) refine = PyLong_AsLong(rf);
+  Py_XDECREF(rf);
+  if (!rf) PyErr_Clear();
+
+  if (PyLong_Check(id)) { bp.reset(new meep::binary_partition(PyLong_AsLong(id), refine)); }
   else {
     bp.reset(new meep::binary_partition(
         meep::split_plane{direction(PyLong_AsLong(split_dir)), PyFloat_AsDouble(split_pos)},
@@ -1281,9 +1289,10 @@ static PyObject *bp_to_py_bp(const meep::binary_partition *bp) {
   PyObject *bp_class = py_binary_partition_object();
   PyObject *args = PyTuple_New(0); // no numbered arguments to pass
   if (bp->is_leaf()) {
-    // leaf nodes will have proc_id and no other properties
+    // leaf nodes carry proc_id and, where the chunk is refined, the factor
     int proc_id = bp->get_proc_id();
-    PyObject *kwargs = Py_BuildValue("{s:i}", "proc_id", proc_id);
+    PyObject *kwargs =
+        Py_BuildValue("{s:i,s:i}", "proc_id", proc_id, "refine_factor", bp->get_refine_factor());
     PyObject *py_bp = PyObject_Call(bp_class, args, kwargs);
     Py_DECREF(args);
     Py_DECREF(kwargs);

@@ -1260,6 +1260,7 @@ class Simulation:
         force_all_components: bool = False,
         split_chunks_evenly: bool = True,
         chunk_layout=None,
+        mesh_refinement=None,
         collect_stats: bool = False,
     ):
         """
@@ -1474,6 +1475,12 @@ class Simulation:
           For more information, see [Load and Dump Structure](#load-and-dump-structure) and
           [Parallel Meep/User-Specified Cell Partition](Parallel_Meep.md#user-specified-cell-partition).
 
+        + **`mesh_refinement` [ list of `Refinement` class ]** — Boxes simulated at a
+          finer resolution than the rest of the cell, each an integer multiple of
+          `resolution`, all at the same one. Boxes are snapped outward onto coarse
+          cell boundaries; they must not overlap. Cannot be combined with
+          `chunk_layout` or `symmetries`.
+
         The following require a bit more understanding of the inner workings of Meep to
         use. See also [SWIG Wrappers](#swig-wrappers).
 
@@ -1517,6 +1524,14 @@ class Simulation:
         self.extra_materials = extra_materials if extra_materials else []
         self.default_material = default_material
         self.epsilon_input_file = epsilon_input_file
+        self.mesh_refinement = mesh_refinement if mesh_refinement else []
+        if self.mesh_refinement and chunk_layout is not None:
+            raise ValueError("give either mesh_refinement or chunk_layout, not both")
+        if self.mesh_refinement and self.symmetries:
+            raise ValueError("mesh_refinement does not support symmetries yet")
+        if self.mesh_refinement:
+            chunk_layout = self._chunk_layout_from_refinement()
+            self.chunk_layout = chunk_layout
         self.num_chunks = (
             chunk_layout.numchunks()
             if isinstance(chunk_layout, mp.BinaryPartition)
@@ -2044,6 +2059,62 @@ class Simulation:
                 "MaterialGrid(s)"
             )
 
+    def _chunk_layout_from_refinement(self):
+        """Turns mesh_refinement into a BinaryPartition isolating each region."""
+        dims = [d for d in range(3) if self.cell_size[d] != 0]
+        cell_lo = Vector3(
+            *[self.geometry_center[d] - 0.5 * self.cell_size[d] for d in range(3)]
+        )
+        cell_hi = Vector3(
+            *[self.geometry_center[d] + 0.5 * self.cell_size[d] for d in range(3)]
+        )
+
+        factors = {
+            int(math.ceil(r.resolution / self.resolution - 1e-9))
+            for r in self.mesh_refinement
+        }
+        if len(factors) > 1:
+            raise ValueError(
+                "mesh_refinement regions must all use the same resolution: "
+                "only one refined level next to the base grid is supported"
+            )
+
+        regions = []
+        for r in self.mesh_refinement:
+            lo, hi = mp.simulation._snap_refinement_box(r, self.resolution, cell_lo)
+            for d in dims:
+                if lo[d] < cell_lo[d] - 1e-9 or hi[d] > cell_hi[d] + 1e-9:
+                    raise ValueError(
+                        "refinement region reaches outside the cell in direction {}".format(
+                            d
+                        )
+                    )
+            orig_lo = Vector3(*[r.center[d] - 0.5 * r.size[d] for d in range(3)])
+            orig_hi = Vector3(*[r.center[d] + 0.5 * r.size[d] for d in range(3)])
+            if any(
+                abs(lo[d] - orig_lo[d]) > 1e-9 or abs(hi[d] - orig_hi[d]) > 1e-9
+                for d in dims
+            ):
+                warnings.warn(
+                    "refinement region snapped outward onto coarse cell boundaries: "
+                    "{} .. {} became {} .. {}".format(orig_lo, orig_hi, lo, hi)
+                )
+            regions.append((lo, hi, r.resolution))
+
+        for i in range(len(regions)):
+            for j in range(i + 1, len(regions)):
+                a, b = regions[i], regions[j]
+                if all(
+                    a[0][d] < b[1][d] - 1e-9 and a[1][d] > b[0][d] + 1e-9 for d in dims
+                ):
+                    raise ValueError(
+                        "refinement regions overlap; nested levels are not supported"
+                    )
+
+        return mp.simulation._build_refined_partition(
+            cell_lo, cell_hi, regions, dims, [0]
+        )
+
     def _init_structure(self, k=False):
         if verbosity.meep > 0:
             print("-" * 11)
@@ -2098,6 +2169,8 @@ class Simulation:
         self.pml_vols3 = fragment_vols[3]
         self.absorber_vols = fragment_vols[4]
         self.gv = gv
+        if isinstance(self.chunk_layout, mp.BinaryPartition):
+            self.chunk_layout._resolve_refinement(self.resolution)
         self.structure = mp.create_structure(
             self.cell_size,
             self.dft_data_list,
@@ -2544,7 +2617,6 @@ class Simulation:
             self.loop_tile_base_eh,
             self.bfast_scaled_k,
         )
-
         if self.force_all_components and self.dimensions != 1:
             self.fields.require_component(mp.Ez)
             self.fields.require_component(mp.Hz)
@@ -6693,6 +6765,77 @@ def merge_subgroup_data(data):
     return output
 
 
+class Refinement:
+    """
+    A box to be stepped at a finer resolution than the rest of the cell, for the
+    `mesh_refinement` parameter of `Simulation`.
+    """
+
+    def __init__(self, center=None, size=None, resolution=None):
+        """
+        `center` and `size` give the box, in the usual Meep coordinates, and `resolution`
+        is the resolution wanted inside it. The resolution must be an integer multiple of
+        the `Simulation` resolution and the box must lie on cell boundaries of the coarse
+        grid; both get snapped, outward and upward, and the snapping is reported.
+        """
+        if resolution is None:
+            raise ValueError("Refinement requires a resolution")
+        self.center = center if center is not None else Vector3()
+        self.size = size if size is not None else Vector3()
+        self.resolution = resolution
+
+
+def _snap_refinement_box(region, base_resolution, origin=Vector3()):
+    """Snaps a region outward onto coarse cell boundaries, which are counted from
+    `origin` (the cell's lower corner). Returns (lo, hi)."""
+    step = 1.0 / base_resolution
+    lo, hi = [], []
+    for d in range(3):
+        c = region.center[d] - origin[d]
+        s = region.size[d]
+        lo.append(origin[d] + math.floor((c - 0.5 * s) / step + 1e-9) * step)
+        hi.append(origin[d] + math.ceil((c + 0.5 * s) / step - 1e-9) * step)
+    return Vector3(*lo), Vector3(*hi)
+
+
+def _build_refined_partition(cell_lo, cell_hi, regions, dims, proc_ids):
+    """Splits [cell_lo, cell_hi] until every region is its own leaf.
+
+    Each recursion removes one misaligned region edge, so it terminates. A region
+    that does not overlap the current box is ignored in that branch, which is what
+    lets several disjoint regions share one tree.
+    """
+    tol = 1e-9
+    here = [
+        r
+        for r in regions
+        if all(r[0][d] < cell_hi[d] - tol and r[1][d] > cell_lo[d] + tol for d in dims)
+    ]
+    for rlo, rhi, res in here:
+        for d in dims:
+            for pos in (rlo[d], rhi[d]):
+                if cell_lo[d] + tol < pos < cell_hi[d] - tol:
+                    left_hi = Vector3(
+                        *[pos if k == d else cell_hi[k] for k in range(3)]
+                    )
+                    right_lo = Vector3(
+                        *[pos if k == d else cell_lo[k] for k in range(3)]
+                    )
+                    return BinaryPartition(
+                        split_dir=d,
+                        split_pos=pos,
+                        left=_build_refined_partition(
+                            cell_lo, left_hi, regions, dims, proc_ids
+                        ),
+                        right=_build_refined_partition(
+                            right_lo, cell_hi, regions, dims, proc_ids
+                        ),
+                    )
+    resolution = here[0][2] if here else None
+    proc_ids[0] += 1
+    return BinaryPartition(proc_id=proc_ids[0] - 1, resolution=resolution)
+
+
 class BinaryPartition:
     """
     Binary tree class used for specifying a cell partition of arbitrary sized chunks for use as the
@@ -6707,6 +6850,8 @@ class BinaryPartition:
         left=None,
         right=None,
         proc_id=None,
+        resolution=None,
+        refine_factor=1,
     ):
         """
         The constructor accepts three separate groups of arguments: (1) `data`: a list of lists where each
@@ -6718,14 +6863,24 @@ class BinaryPartition:
         `proc_id`. Note that the same process ID can be assigned to as many chunks as you want, which means that one
         process timesteps multiple chunks. If you use fewer MPI processes, then the process ID is taken modulo the number
         of processes.
+
+        A leaf may also be given a `resolution`, in pixels per unit distance, to step that
+        chunk at a finer resolution than the rest of the cell. It must be an integer multiple
+        of the `Simulation` resolution; anything else is snapped up to one and reported. The
+        factor actually used is available afterwards as the leaf's `refine_factor`.
         """
         self.split_dir = None
         self.split_pos = None
         self.proc_id = None
         self.left = None
         self.right = None
+        self.resolution = resolution
+        self.refine_factor = refine_factor
         if data is not None:
-            if isinstance(data, list) and len(data) == 3:
+            if isinstance(data, BinaryPartition):
+                # allow an already-built subtree, so refined leaves can be composed
+                self.__dict__.update(data.__dict__)
+            elif isinstance(data, list) and len(data) == 3:
                 if isinstance(data[0], tuple) and len(data[0]) == 2:
                     self.split_dir = data[0][0]
                     self.split_pos = data[0][1]
@@ -6752,6 +6907,43 @@ class BinaryPartition:
             self.right = right
         else:
             self.proc_id = proc_id
+
+    def _leaves(self):
+        """Yields every leaf of the tree."""
+        if self.left is None and self.right is None:
+            yield self
+            return
+        for child in (self.left, self.right):
+            if child is not None:
+                yield from child._leaves()
+
+    def _resolve_refinement(self, base_resolution):
+        """Turns each leaf's requested resolution into an integer refine_factor.
+
+        Snapping is reported rather than silent: a user who cannot predict the grid
+        they got cannot file a reproducible bug about it.
+        """
+        for leaf in self._leaves():
+            if getattr(leaf, "resolution", None) is None:
+                leaf.refine_factor = 1
+                continue
+            if leaf.resolution < base_resolution:
+                raise ValueError(
+                    "BinaryPartition leaf resolution {} is below the Simulation "
+                    "resolution {}; chunks can be refined but not coarsened".format(
+                        leaf.resolution, base_resolution
+                    )
+                )
+            exact = leaf.resolution / base_resolution
+            factor = int(math.ceil(exact - 1e-9))
+            if abs(exact - factor) > 1e-9:
+                warnings.warn(
+                    "refinement resolution {} is not an integer multiple of the "
+                    "Simulation resolution {}; snapping up to {}".format(
+                        leaf.resolution, base_resolution, factor * base_resolution
+                    )
+                )
+            leaf.refine_factor = factor
 
     def print(self):
         """Pretty-prints the tree structure of the BinaryPartition object."""
@@ -6780,6 +6972,10 @@ class BinaryPartition:
 
     def _node_info(self) -> str:
         if self.proc_id is not None:
+            if getattr(self, "refine_factor", 1) > 1:
+                return f"<proc_id={self.proc_id}, refine_factor={self.refine_factor}>"
+            if getattr(self, "resolution", None) is not None:
+                return f"<proc_id={self.proc_id}, resolution={self.resolution}>"
             return f"<proc_id={self.proc_id}>"
         else:
             split_dir_str = {mp.X: "X", mp.Y: "Y", mp.Z: "Z"}[self.split_dir]
