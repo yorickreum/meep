@@ -3,7 +3,7 @@ convergence_cyl_waveguide.cpp cylindrical.cpp dump_load.cpp flux.cpp    \
 harmonics.cpp integrate.cpp known_results.cpp near2far.cpp              \
 one_dimensional.cpp physical.cpp stress_tensor.cpp symmetry.cpp 	\
 three_d.cpp two_dimensional.cpp 2D_convergence.cpp h5test.cpp pml.cpp \
-subgrid_lattice.cpp
+subgrid_lattice.cpp subgrid_fields.cpp subgrid_convergence.cpp subgrid_dispersive.cpp subgrid_reflection.cpp subgrid_3d.cpp subgrid_conforming.cpp subgrid_sources.cpp subgrid_flux.cpp
 
 EXTRA_DIST = $(SRC)
 
@@ -17,7 +17,7 @@ AM_CPPFLAGS = -I$(top_srcdir)/src -DDATADIR=\"$(srcdir)/\"
 
 .SUFFIXES = .dac .done
 
-check_PROGRAMS = subgrid_lattice aniso_disp bench bragg_transmission convergence_cyl_waveguide cylindrical dump_load flux harmonics integrate known_results near2far one_dimensional physical stress_tensor symmetry three_d two_dimensional 2D_convergence h5test pml pw-source-ll ring-ll cyl-ellipsoid-ll absorber-1d-ll array-slice-ll user-defined-material dft-fields bend-flux-ll array-metadata
+check_PROGRAMS = subgrid_conforming subgrid_sources subgrid_flux subgrid_lattice subgrid_fields subgrid_convergence subgrid_dispersive subgrid_reflection subgrid_3d aniso_disp bench bragg_transmission convergence_cyl_waveguide cylindrical dump_load flux harmonics integrate known_results near2far one_dimensional physical stress_tensor symmetry three_d two_dimensional 2D_convergence h5test pml pw-source-ll ring-ll cyl-ellipsoid-ll absorber-1d-ll array-slice-ll user-defined-material dft-fields bend-flux-ll array-metadata
 
 array_metadata_SOURCES = array-metadata.cpp
 array_metadata_LDADD   = $(MEEPLIBS)
@@ -54,6 +54,30 @@ known_results_LDADD = $(MEEPLIBS)
 
 subgrid_lattice_SOURCES = subgrid_lattice.cpp
 subgrid_lattice_LDADD = $(MEEPLIBS)
+
+subgrid_fields_SOURCES = subgrid_fields.cpp
+subgrid_fields_LDADD = $(MEEPLIBS)
+
+subgrid_conforming_SOURCES = subgrid_conforming.cpp
+subgrid_conforming_LDADD = $(MEEPLIBS)
+
+subgrid_sources_SOURCES = subgrid_sources.cpp
+subgrid_sources_LDADD = $(MEEPLIBS)
+
+subgrid_flux_SOURCES = subgrid_flux.cpp
+subgrid_flux_LDADD = $(MEEPLIBS)
+
+subgrid_3d_SOURCES = subgrid_3d.cpp
+subgrid_3d_LDADD = $(MEEPLIBS)
+
+subgrid_reflection_SOURCES = subgrid_reflection.cpp
+subgrid_reflection_LDADD = $(MEEPLIBS)
+
+subgrid_dispersive_SOURCES = subgrid_dispersive.cpp
+subgrid_dispersive_LDADD = $(MEEPLIBS)
+
+subgrid_convergence_SOURCES = subgrid_convergence.cpp
+subgrid_convergence_LDADD = $(MEEPLIBS)
 
 near2far_SOURCES = near2far.cpp
 near2far_LDADD = $(MEEPLIBS)
@@ -111,7 +135,7 @@ user_defined_material_LDADD   = $(MEEPLIBS)
 
 dist_noinst_DATA = cyl-ellipsoid-eps-ref.h5 array-slice-ll-ref.h5
 
-TESTS = subgrid_lattice aniso_disp bench bragg_transmission convergence_cyl_waveguide cylindrical dump_load flux harmonics integrate known_results near2far one_dimensional physical stress_tensor symmetry three_d two_dimensional 2D_convergence h5test pml
+TESTS = subgrid_conforming subgrid_3d subgrid_sources subgrid_flux subgrid_lattice subgrid_fields subgrid_convergence subgrid_dispersive subgrid_reflection aniso_disp bench bragg_transmission convergence_cyl_waveguide cylindrical dump_load flux harmonics integrate known_results near2far one_dimensional physical stress_tensor symmetry three_d two_dimensional 2D_convergence h5test pml
 
 if WITH_MPI
   LOG_COMPILER = $(RUNCODE)

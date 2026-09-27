@@ -143,6 +143,17 @@ public:
   // whether update_P needs the W_prev field (from the previous timestep)
   virtual bool needs_W_prev() const { return false; }
 
+  /* update_P at one point with a diagonal sigma: P and P_prev given there,
+     W the field and s sigma there.  False if this susceptibility cannot. */
+  virtual bool update_P_point(realnum w, realnum s, realnum dt, realnum &p, realnum &pp) const {
+    (void)w;
+    (void)s;
+    (void)dt;
+    (void)p;
+    (void)pp;
+    return false;
+  }
+
   /* A susceptibility may be associated with any amount of internal
      data need to update the polarization field.  This includes the
      polarization field(s) itself.  It may also, for example, store
@@ -256,6 +267,7 @@ public:
   virtual void update_P(realnum *W[NUM_FIELD_COMPONENTS][2],
                         realnum *W_prev[NUM_FIELD_COMPONENTS][2], realnum dt, const grid_volume &gv,
                         void *P_internal_data) const;
+  virtual bool update_P_point(realnum w, realnum s, realnum dt, realnum &p, realnum &pp) const;
 
   virtual void subtract_P(field_type ft, realnum *f_minus_p[NUM_FIELD_COMPONENTS][2],
                           void *P_internal_data) const;
@@ -290,6 +302,15 @@ public:
   virtual void update_P(realnum *W[NUM_FIELD_COMPONENTS][2],
                         realnum *W_prev[NUM_FIELD_COMPONENTS][2], realnum dt, const grid_volume &gv,
                         void *P_internal_data) const;
+  // the noise is drawn per update_P sweep; one point cannot reproduce it
+  virtual bool update_P_point(realnum w, realnum s, realnum dt, realnum &p, realnum &pp) const {
+    (void)w;
+    (void)s;
+    (void)dt;
+    (void)p;
+    (void)pp;
+    return false;
+  }
 
   virtual void dump_params(h5file *h5f, size_t *start);
   virtual int get_num_params() { return 5; }
@@ -1713,6 +1734,8 @@ private:
 /***************************************************************/
 typedef vec (*kpoint_func)(double freq, int mode, void *user_data);
 
+struct conforming_rows;
+
 class fields {
 public:
   int num_chunks;
@@ -1764,6 +1787,9 @@ public:
   void use_bloch(direction, std::complex<double> kz);
   void use_bloch(const vec &k);
   vec lattice_vector(direction) const;
+  bool subgrid_syncing = false; // inside synchronize_magnetic_fields
+  // the rows' share of dft_ldos's sums: E J*, H J*, sum |J|
+  void subgrid_ldos_terms(std::complex<double> &EJ, std::complex<double> &HJ, double &Jsum) const;
   // update_eh.cpp
   void update_eh(field_type ft, bool skip_w_components = false);
 
@@ -2256,6 +2282,10 @@ private:
                                            std::complex<double> kphase[8], int &ncopies) const;
   // fix_boundary_sources.cpp
   void fix_boundary_sources();
+  // conforming.cpp
+  conforming_rows *subgrid_rows = NULL;
+  void step_subgrid_rows(int stage);
+  void free_subgrid_rows();
   // step.cpp
   void phase_material();
   void step_db(field_type ft);

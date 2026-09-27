@@ -185,6 +185,19 @@ static bool lorentzian_unstable(realnum omega_0, realnum gamma, realnum dt) {
 #define OFFDIAG(u, g, sx, s)                                                                       \
   (0.25 * ((g[i] + g[i - sx]) * u[i] + (g[i + s] + g[(i + s) - sx]) * u[i + s]))
 
+bool lorentzian_susceptibility::update_P_point(realnum w, realnum s, realnum dt, realnum &p,
+                                               realnum &pp) const {
+  const realnum omega2pi = 2 * pi * omega_0, g2pi = gamma * 2 * pi;
+  const realnum omega0dtsqr = omega2pi * omega2pi * dt * dt;
+  const realnum gamma1inv = 1 / (1 + g2pi * dt / 2), gamma1 = (1 - g2pi * dt / 2);
+  const realnum omega0dtsqr_denom = no_omega_0_denominator ? 0 : omega0dtsqr;
+  if (s == 0) return true; // as update_P
+  const realnum pcur = p;
+  p = gamma1inv * (pcur * (2 - omega0dtsqr_denom) - gamma1 * pp + omega0dtsqr * (s * w));
+  pp = pcur;
+  return true;
+}
+
 void lorentzian_susceptibility::update_P(realnum *W[NUM_FIELD_COMPONENTS][2],
                                          realnum *W_prev[NUM_FIELD_COMPONENTS][2], realnum dt,
                                          const grid_volume &gv, void *P_internal_data) const {

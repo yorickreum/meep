@@ -41,6 +41,7 @@ void fields::step() {
   }
 
   am_now_working_on(Stepping);
+  step_subgrid_rows(0);
 
   if (!t) {
     last_step_output_wall_time = wall_time();
@@ -66,6 +67,7 @@ void fields::step() {
     auto step_timer = with_timing_scope(FieldUpdateB);
     step_db(B_stuff);
   }
+  step_subgrid_rows(1);
   step_source(B_stuff);
   {
     auto step_timer = with_timing_scope(BoundarySteppingB);
@@ -76,6 +78,7 @@ void fields::step() {
     auto step_timer = with_timing_scope(FieldUpdateH);
     update_eh(H_stuff);
   }
+  step_subgrid_rows(5);
   {
     auto step_timer = with_timing_scope(BoundarySteppingWH);
     step_boundaries(WH_stuff);
@@ -89,6 +92,7 @@ void fields::step() {
     auto step_timer = with_timing_scope(BoundarySteppingH);
     step_boundaries(H_stuff);
   }
+  step_subgrid_rows(2);
 
   if (fluxes) fluxes->update_half();
 
@@ -97,6 +101,7 @@ void fields::step() {
     auto step_timer = with_timing_scope(FieldUpdateD);
     step_db(D_stuff);
   }
+  step_subgrid_rows(3);
   step_source(D_stuff);
   {
     auto step_timer = with_timing_scope(BoundarySteppingD);
@@ -107,6 +112,7 @@ void fields::step() {
     auto step_timer = with_timing_scope(FieldUpdateE);
     update_eh(E_stuff);
   }
+  step_subgrid_rows(6);
   {
     auto step_timer = with_timing_scope(BoundarySteppingWE);
     step_boundaries(WE_stuff);
@@ -120,6 +126,7 @@ void fields::step() {
     auto step_timer = with_timing_scope(BoundarySteppingE);
     step_boundaries(E_stuff);
   }
+  step_subgrid_rows(4);
 
   if (fluxes) fluxes->update();
   t += 1;

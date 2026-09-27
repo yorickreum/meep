@@ -151,13 +151,19 @@ void fields::synchronize_magnetic_fields() {
       FOR_MAGNETIC_COMPONENTS(c) { chunks[i]->backup_component(c); }
     }
   am_now_working_on(Stepping);
+  subgrid_syncing = true; // the rows step the interface as in step(), P not advanced
+  step_subgrid_rows(0);
   calc_sources(time()); // for B sources
   step_db(B_stuff);
+  step_subgrid_rows(1);
   step_source(B_stuff);
   step_boundaries(B_stuff);
   calc_sources(time() + 0.5 * dt); // for integrated H sources
   update_eh(H_stuff);
+  step_subgrid_rows(5);
   step_boundaries(H_stuff);
+  step_subgrid_rows(2);
+  subgrid_syncing = false;
   finished_working();
   for (int i = 0; i < num_chunks; i++)
     if (chunks[i]->is_mine()) {

@@ -243,6 +243,9 @@ void fields::add_volume_source(component c, const src_time &src, const volume &w
   add_volume_source(c, src, where, one, amp);
 }
 
+static bool add_point_source_multires(fields &f, component c, src_time *src, const vec &p,
+                                      complex<double> amp, int ndelta);
+
 struct src_vol_chunkloop_data {
   complex<double> (*A)(const vec &);
   complex<double> amp;
@@ -543,8 +546,107 @@ void fields::add_volume_source(component c, const src_time &src, const volume &w
   data.point_src = (nsized == 0 && data.ndelta > 0);
   sources = src.add_to(sources, &data.src);
   data.center = (where.get_min_corner() + where.get_max_corner()) * 0.5;
-  loop_in_chunks(src_vol_chunkloop, (void *)&data, where, c, false);
+  bool several = false;
+  for (int i = 1; i < num_chunks; ++i)
+    several = several || chunks[i]->gv.q() != chunks[0]->gv.q();
+  if (!(data.point_src && several && S.multiplicity() == 1 &&
+        add_point_source_multires(*this, c, data.src, data.center,
+                                  data.amp * data.A(zero_vec(gv.dim)), data.ndelta)))
+    loop_in_chunks(src_vol_chunkloop, (void *)&data, where, c, false);
   require_component(c);
+}
+
+/* A point source on chunks of several resolutions.  Interpolating on every
+   chunk's own grid and keeping the owned nodes, as for one resolution, counts
+   the point twice near an interface; so interpolate once, on the finest
+   lattice holding the point, and give each node to the chunk owning it -- a
+   chunk of that lattice first.  A node nobody owns is a fine sample on the
+   interface, which the conforming rows take where it is stored.  Amplitudes
+   carry the taker's a, so the dipole does not depend on who takes a node.
+   False if not handled here (a node on or beyond the cell boundary). */
+static bool add_point_source_multires(fields &f, component c, src_time *src, const vec &p,
+                                      complex<double> amp, int ndelta) {
+  const double eps = 1e-6 * f.gv.inva;
+  auto in_box = [&](const grid_volume &gv, const vec &x) { // the chunk's own cells, closed
+    const vec lo = gv[gv.little_corner()], hi = gv[gv.big_corner()];
+    LOOP_OVER_DIRECTIONS(gv.dim, d) {
+      if (x.in_direction(d) < lo.in_direction(d) - eps ||
+          x.in_direction(d) > hi.in_direction(d) + eps)
+        return false;
+    }
+    return true;
+  };
+  auto finest_holding = [&](const vec &x) {
+    int home = -1;
+    for (int i = 0; i < f.num_chunks; ++i) {
+      const grid_volume &gv = f.chunks[i]->gv;
+      if (in_box(gv, x) && (home < 0 || gv.q() < f.chunks[home]->gv.q())) home = i;
+    }
+    return home;
+  };
+  auto stores = [&](const grid_volume &gv, const ivec &l) {
+    return gv.contains(l) && gv.iloc(c, gv.index(c, l)) == l;
+  };
+  auto inside = [&](const vec &x) {
+    LOOP_OVER_DIRECTIONS(f.gv.dim, d) {
+      const double lo = f.user_volume.boundary_location(Low, d),
+                   hi = f.user_volume.boundary_location(High, d);
+      if (x.in_direction(d) <= lo + eps || x.in_direction(d) >= hi - eps) return false;
+    }
+    return true;
+  };
+  struct node {
+    int chunk;
+    ivec at;
+    double w;
+  };
+  std::vector<node> nodes;
+  // the nodes of p on the finest lattice holding it, each to its taker
+  const int home = finest_holding(p);
+  if (home < 0) return false;
+  const grid_volume &hg = f.chunks[home]->gv;
+  // keep the stencil in the home box: clamp to its outermost lattice lines
+  vec xc = p;
+  const vec lo = hg[hg.little_corner()], hi = hg[hg.big_corner()];
+  LOOP_OVER_DIRECTIONS(hg.dim, d) {
+    const double s = hg.iyee_shift(c).in_direction(d) ? 0.5 * hg.inva : 0.0;
+    xc.set_direction(
+        d, std::min(std::max(p.in_direction(d), lo.in_direction(d) + s), hi.in_direction(d) - s));
+  }
+  ivec locs[8];
+  double weights[8];
+  hg.interpolate(c, xc, locs, weights);
+  for (int k = 0; k < 8; ++k) {
+    if (!weights[k]) continue;
+    if (!inside(hg[locs[k]])) return false;
+    int taker = -1;
+    for (int pass = 0; pass < 2 && taker < 0; ++pass)
+      for (int j = 0; j < f.num_chunks && taker < 0; ++j) {
+        const grid_volume &gv = f.chunks[j]->gv;
+        if ((gv.q() == hg.q()) == (pass == 0) && stores(gv, locs[k]) && gv.owns(locs[k])) taker = j;
+      }
+    for (int j = 0; j < f.num_chunks && taker < 0; ++j)
+      if (f.chunks[j]->gv.q() == hg.q() && stores(f.chunks[j]->gv, locs[k])) taker = j;
+    if (taker < 0) meep::abort("point source: a stencil node outside its own chunk");
+    nodes.push_back(node{taker, locs[k], weights[k]});
+  }
+  for (const node &n : nodes) {
+    if (!f.chunks[n.chunk]->is_mine()) continue;
+    fields_chunk *fc = f.chunks[n.chunk];
+    const ptrdiff_t idx = fc->gv.index(c, n.at);
+    complex<double> a = n.w * amp;
+    for (int k = 0; k < ndelta; ++k)
+      a *= fc->gv.a;
+    if (is_D(c) && fc->s->chi1inv[c - Dx + Ex][component_direction(c)])
+      a /= fc->s->chi1inv[c - Dx + Ex][component_direction(c)][idx];
+    if (is_B(c) && fc->s->chi1inv[c - Bx + Hx][component_direction(c)])
+      a /= fc->s->chi1inv[c - Bx + Hx][component_direction(c)][idx];
+    std::vector<ptrdiff_t> index(1, idx);
+    std::vector<complex<double> > amps(1, a);
+    fc->add_source(is_H_or_B(c) ? B_stuff : D_stuff,
+                   src_vol(c, src, std::move(index), std::move(amps)));
+  }
+  return true;
 }
 
 /***************************************************************/

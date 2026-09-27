@@ -10,7 +10,7 @@ HDRS = meep.hpp meep_internals.hpp meep/mympi.hpp meep/vec.hpp	\
 bicgstab.hpp meepgeom.hpp material_data.hpp adjust_verbosity.hpp
 
 libmeep_la_SOURCES = array_slice.cpp anisotropic_averaging.cpp 		\
-bands.cpp boundaries.cpp bicgstab.cpp casimir.cpp 	\
+bands.cpp boundaries.cpp bicgstab.cpp casimir.cpp conforming.cpp 	\
 cw_fields.cpp dft.cpp dft_ldos.cpp energy_and_flux.cpp 	\
 fields.cpp fields_dump.cpp fix_boundary_sources.cpp loop_in_chunks.cpp h5fields.cpp h5file.cpp 	\
 initialize.cpp integrate.cpp integrate2.cpp material_data.cpp monitor.cpp mympi.cpp 	\

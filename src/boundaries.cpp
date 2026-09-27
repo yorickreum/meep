@@ -371,9 +371,6 @@ static connect_phase connect_phase_from_phase(std::complex<double> thephase) {
 }
 
 void fields::connect_the_chunks() {
-  for (int i = 1; i < num_chunks; i++)
-    if (chunks[i]->gv.q() != chunks[0]->gv.q())
-      meep::abort("chunks of different resolution need an interface between them");
   /* For some of the chunks, H==B, and we definitely don't need to
      send B between two such chunks.   We'll still send B when
      the recipient has H != B, since the recipient needs to get B
@@ -424,6 +421,7 @@ void fields::connect_the_chunks() {
           complex<double> thephase;
           if (locate_component_point(&c, &here, &thephase) && !on_metal_boundary(here))
             for (int j = 0; j < num_chunks; j++) {
+              if (chunks[j]->gv.q() != vi.q()) continue; // the rows couple resolutions
               const std::pair<int, int> pair_j_to_i{j, i};
               if ((chunks[i]->is_mine() || chunks[j]->is_mine()) && chunks[j]->gv.owns(here) &&
                   !(is_B(corig) && is_B(c) && B_redundant[5 * i + corig - Bx] &&
@@ -492,6 +490,7 @@ void fields::connect_the_chunks() {
           std::complex<double> thephase;
           if (locate_component_point(&c, &here, &thephase) && !on_metal_boundary(here)) {
             for (int j = 0; j < num_chunks; j++) {
+              if (chunks[j]->gv.q() != vi.q()) continue; // the rows couple resolutions
               const std::pair<int, int> pair_j_to_i{j, i};
               const bool i_is_mine = chunks[i]->is_mine();
               const bool j_is_mine = chunks[j]->is_mine();

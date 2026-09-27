@@ -128,6 +128,7 @@ fields::fields(const fields &thef)
 }
 
 fields::~fields() {
+  free_subgrid_rows();
   for (int i = 0; i < num_chunks; i++)
     delete chunks[i];
   delete[] chunks;
