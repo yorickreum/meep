@@ -2,7 +2,8 @@ SRC = aniso_disp.cpp bench.cpp bragg_transmission.cpp			\
 convergence_cyl_waveguide.cpp cylindrical.cpp dump_load.cpp flux.cpp    \
 harmonics.cpp integrate.cpp known_results.cpp near2far.cpp              \
 one_dimensional.cpp physical.cpp stress_tensor.cpp symmetry.cpp 	\
-three_d.cpp two_dimensional.cpp 2D_convergence.cpp h5test.cpp pml.cpp
+three_d.cpp two_dimensional.cpp 2D_convergence.cpp h5test.cpp pml.cpp \
+subgrid_lattice.cpp
 
 EXTRA_DIST = $(SRC)
 
@@ -16,7 +17,7 @@ AM_CPPFLAGS = -I$(top_srcdir)/src -DDATADIR=\"$(srcdir)/\"
 
 .SUFFIXES = .dac .done
 
-check_PROGRAMS = aniso_disp bench bragg_transmission convergence_cyl_waveguide cylindrical dump_load flux harmonics integrate known_results near2far one_dimensional physical stress_tensor symmetry three_d two_dimensional 2D_convergence h5test pml pw-source-ll ring-ll cyl-ellipsoid-ll absorber-1d-ll array-slice-ll user-defined-material dft-fields bend-flux-ll array-metadata
+check_PROGRAMS = subgrid_lattice aniso_disp bench bragg_transmission convergence_cyl_waveguide cylindrical dump_load flux harmonics integrate known_results near2far one_dimensional physical stress_tensor symmetry three_d two_dimensional 2D_convergence h5test pml pw-source-ll ring-ll cyl-ellipsoid-ll absorber-1d-ll array-slice-ll user-defined-material dft-fields bend-flux-ll array-metadata
 
 array_metadata_SOURCES = array-metadata.cpp
 array_metadata_LDADD   = $(MEEPLIBS)
@@ -50,6 +51,9 @@ integrate_LDADD = $(MEEPLIBS)
 
 known_results_SOURCES = known_results.cpp
 known_results_LDADD = $(MEEPLIBS)
+
+subgrid_lattice_SOURCES = subgrid_lattice.cpp
+subgrid_lattice_LDADD = $(MEEPLIBS)
 
 near2far_SOURCES = near2far.cpp
 near2far_LDADD = $(MEEPLIBS)
@@ -107,7 +111,7 @@ user_defined_material_LDADD   = $(MEEPLIBS)
 
 dist_noinst_DATA = cyl-ellipsoid-eps-ref.h5 array-slice-ll-ref.h5
 
-TESTS = aniso_disp bench bragg_transmission convergence_cyl_waveguide cylindrical dump_load flux harmonics integrate known_results near2far one_dimensional physical stress_tensor symmetry three_d two_dimensional 2D_convergence h5test pml
+TESTS = subgrid_lattice aniso_disp bench bragg_transmission convergence_cyl_waveguide cylindrical dump_load flux harmonics integrate known_results near2far one_dimensional physical stress_tensor symmetry three_d two_dimensional 2D_convergence h5test pml
 
 if WITH_MPI
   LOG_COMPILER = $(RUNCODE)

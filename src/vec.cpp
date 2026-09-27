@@ -31,7 +31,9 @@ static bool isinteger(double value) { return value == floor(value); }
 
 ivec grid_volume::round_vec(const vec &p) const {
   ivec result(dim);
-  LOOP_OVER_DIRECTIONS(dim, d) { result.set_direction(d, my_round(p.in_direction(d) * 2 * a)); }
+  LOOP_OVER_DIRECTIONS(dim, d) {
+    result.set_direction(d, my_round(p.in_direction(d) * 2 * a * the_q));
+  }
   return result;
 }
 
@@ -287,7 +289,8 @@ volume grid_volume::surroundings() const {
 }
 
 volume grid_volume::interior() const {
-  return volume(operator[](little_corner()), operator[](big_corner() - one_ivec(dim) * 2));
+  return volume(operator[](little_corner()), operator[](big_corner() -
+                                                        one_ivec(dim) * (2 * the_q)));
 }
 
 void grid_volume::update_ntot() {
@@ -367,7 +370,8 @@ bool grid_volume::contains(const ivec &p) const {
   // point.
   const ivec o = p - io;
   LOOP_OVER_DIRECTIONS(dim, d) {
-    if (o.in_direction(d) < 0 || o.in_direction(d) >= (num_direction(d) + 1) * 2) return false;
+    if (o.in_direction(d) < 0 || o.in_direction(d) >= (num_direction(d) + 1) * 2 * the_q)
+      return false;
   }
   return true;
 }
@@ -438,7 +442,7 @@ ivec grid_volume::little_owned_corner(component c) const {
 size_t grid_volume::nowned(component c) const {
   size_t n = 1;
   ivec pt = big_corner() - little_owned_corner(c);
-  LOOP_OVER_DIRECTIONS(dim, d) { n *= pt.in_direction(d) / 2 + 1; }
+  LOOP_OVER_DIRECTIONS(dim, d) { n *= pt.in_direction(d) / (2 * the_q) + 1; }
   return n;
 }
 
@@ -447,15 +451,17 @@ bool grid_volume::owns(const ivec &p) const {
   // is the grid_volume that would timestep the point.
   const ivec o = p - io;
   if (dim == Dcyl) {
-    if (origin.r() == 0.0 && o.z() > 0 && o.z() <= nz() * 2 && o.r() == 0) return true;
-    return o.r() > 0 && o.z() > 0 && o.r() <= nr() * 2 && o.z() <= nz() * 2;
+    if (origin.r() == 0.0 && o.z() > 0 && o.z() <= nz() * 2 * the_q && o.r() == 0) return true;
+    return o.r() > 0 && o.z() > 0 && o.r() <= nr() * 2 * the_q && o.z() <= nz() * 2 * the_q;
   }
   else if (dim == D3) {
-    return o.x() > 0 && o.x() <= nx() * 2 && o.y() > 0 && o.y() <= ny() * 2 && o.z() > 0 &&
-           o.z() <= nz() * 2;
+    return o.x() > 0 && o.x() <= nx() * 2 * the_q && o.y() > 0 && o.y() <= ny() * 2 * the_q &&
+           o.z() > 0 && o.z() <= nz() * 2 * the_q;
   }
-  else if (dim == D2) { return o.x() > 0 && o.x() <= nx() * 2 && o.y() > 0 && o.y() <= ny() * 2; }
-  else if (dim == D1) { return o.z() > 0 && o.z() <= nz() * 2; }
+  else if (dim == D2) {
+    return o.x() > 0 && o.x() <= nx() * 2 * the_q && o.y() > 0 && o.y() <= ny() * 2 * the_q;
+  }
+  else if (dim == D1) { return o.z() > 0 && o.z() <= nz() * 2 * the_q; }
   else {
     meep::abort("Unsupported dimension in owns.\n");
     return false;
@@ -475,7 +481,7 @@ int grid_volume::has_boundary(boundary_side b, direction d) const {
 ptrdiff_t grid_volume::index(component c, const ivec &p) const {
   const ivec offset = p - io - iyee_shift(c);
   ptrdiff_t idx = 0;
-  LOOP_OVER_DIRECTIONS(dim, d) { idx += offset.in_direction(d) / 2 * stride(d); }
+  LOOP_OVER_DIRECTIONS(dim, d) { idx += offset.in_direction(d) / (2 * the_q) * stride(d); }
   return idx;
 }
 
@@ -559,7 +565,9 @@ void grid_volume::interpolate(component c, const vec &pc, ivec locs[8], double w
   const double SMALL = 1e-13;
   const vec p = (pc - yee_shift(c)) * a;
   ivec middle(dim);
-  LOOP_OVER_DIRECTIONS(dim, d) { middle.set_direction(d, ((int)floor(p.in_direction(d))) * 2 + 1); }
+  LOOP_OVER_DIRECTIONS(dim, d) {
+    middle.set_direction(d, ((int)floor(p.in_direction(d))) * (2 * the_q) + the_q);
+  }
   middle += iyee_shift(c);
   const vec midv = operator[](middle);
   const vec dv = (pc - midv) * (2 * a);
@@ -572,9 +580,9 @@ void grid_volume::interpolate(component c, const vec &pc, ivec locs[8], double w
     for (int i = 0; i < already_have; i++) {
       locs[already_have + i] = locs[i];
       weights[already_have + i] = weights[i];
-      locs[i].set_direction(d, middle.in_direction(d) - 1);
+      locs[i].set_direction(d, middle.in_direction(d) - the_q);
       weights[i] *= 0.5 * (1.0 - dv.in_direction(d));
-      locs[already_have + i].set_direction(d, middle.in_direction(d) + 1);
+      locs[already_have + i].set_direction(d, middle.in_direction(d) + the_q);
       weights[already_have + i] *= 0.5 * (1.0 + dv.in_direction(d));
     }
     already_have *= 2;
@@ -721,9 +729,9 @@ double grid_volume::boundary_location(boundary_side b, direction d) const {
 
 ivec grid_volume::big_corner() const {
   switch (dim) {
-    case D1: return io + ivec(nz()) * 2;
-    case D2: return io + ivec(nx(), ny()) * 2;
-    case D3: return io + ivec(nx(), ny(), nz()) * 2;
+    case D1: return io + ivec(nz()) * (2 * the_q);
+    case D2: return io + ivec(nx(), ny()) * (2 * the_q);
+    case D3: return io + ivec(nx(), ny(), nz()) * (2 * the_q);
     case Dcyl: return io + iveccyl(nr(), nz()) * 2;
   }
   return ivec(0); // This is never reached.
@@ -754,12 +762,13 @@ bool grid_volume::intersect_with(const grid_volume &vol_in, grid_volume *interse
     int minval = std::max(little_corner().in_direction(d), vol_in.little_corner().in_direction(d));
     int maxval = std::min(big_corner().in_direction(d), vol_in.big_corner().in_direction(d));
     if (minval >= maxval) return false;
-    temp_num[d % 3] = (maxval - minval) / 2;
+    temp_num[d % 3] = (maxval - minval) / (2 * the_q);
     new_io.set_direction(d, minval);
   }
   if (intersection != NULL) {
     *intersection = grid_volume(dim, a, temp_num[0], temp_num[1],
                                 temp_num[2]); // fix me : ugly, need new constructor
+    intersection->the_q = the_q;              // constructor above defaults to q == 1
     intersection->set_origin(new_io);
   }
   if (others != NULL) {
@@ -771,11 +780,11 @@ bool grid_volume::intersect_with(const grid_volume &vol_in, grid_volume *interse
         grid_volume other = vol_containing;
         const int thick = (vol_in.little_corner().in_direction(d) -
                            vol_containing.little_corner().in_direction(d)) /
-                          2;
+                          (2 * the_q);
         other.set_num_direction(d, thick);
         others[counter] = other;
         counter++;
-        vol_containing.shift_origin(d, thick * 2);
+        vol_containing.shift_origin(d, thick * 2 * the_q);
         vol_containing.set_num_direction(d, vol_containing.num_direction(d) - thick);
         if (vol_containing.little_corner().in_direction(d) < vol_in.little_corner().in_direction(d))
           meep::abort("intersect_with: little corners differ by odd integer?");
@@ -784,9 +793,10 @@ bool grid_volume::intersect_with(const grid_volume &vol_in, grid_volume *interse
         // shave off upper slice from vol_containing and add it to others
         grid_volume other = vol_containing;
         const int thick =
-            (vol_containing.big_corner().in_direction(d) - vol_in.big_corner().in_direction(d)) / 2;
+            (vol_containing.big_corner().in_direction(d) - vol_in.big_corner().in_direction(d)) /
+            (2 * the_q);
         other.set_num_direction(d, thick);
-        other.shift_origin(d, (vol_containing.num_direction(d) - thick) * 2);
+        other.shift_origin(d, (vol_containing.num_direction(d) - thick) * 2 * the_q);
         others[counter] = other;
         counter++;
         vol_containing.set_num_direction(d, vol_containing.num_direction(d) - thick);
@@ -846,7 +856,7 @@ ivec grid_volume::iloc(component c, ptrdiff_t ind) const {
     ptrdiff_t ind_over_stride = ind / stride(d);
     while (ind_over_stride < 0)
       ind_over_stride += num_direction(d) + 1;
-    out.set_direction(d, 2 * (ind_over_stride % (num_direction(d) + 1)));
+    out.set_direction(d, 2 * the_q * (ind_over_stride % (num_direction(d) + 1)));
   }
   return out + iyee_shift(c) + io;
 }
@@ -960,7 +970,7 @@ std::complex<double> grid_volume::get_split_costs(direction d, int split_point,
   if (split_point < num_direction(d)) {
     grid_volume v_right = *this;
     v_right.set_num_direction(d, num_direction(d) - split_point);
-    v_right.shift_origin(d, split_point * 2);
+    v_right.shift_origin(d, split_point * 2 * the_q);
     right_cost = fragment_cost ? v_right.get_cost() : v_right.nowned_min();
   }
   return std::complex<double>(left_cost, right_cost);
@@ -1050,13 +1060,14 @@ void grid_volume::find_best_split(int desired_chunks, bool fragment_cost, int &b
 grid_volume grid_volume::split_at_fraction(bool side_high, int split_pt, int split_dir) const {
   if (dim == Dcyl) split_dir %= 3;
   grid_volume retval(dim, a, 1, 1, 1);
+  retval.the_q = the_q;
   for (int i = 0; i < 3; i++)
     retval.num[i] = num[i];
   if (split_pt >= num[split_dir]) meep::abort("Aaack bad bug in split_at_fraction.\n");
   direction d = (direction)split_dir;
   if (dim == Dcyl && d == X) d = R;
   retval.set_origin(io);
-  if (side_high) retval.shift_origin(d, split_pt * 2);
+  if (side_high) retval.shift_origin(d, split_pt * 2 * the_q);
 
   if (side_high)
     retval.num[split_dir] -= split_pt;
@@ -1067,9 +1078,53 @@ grid_volume grid_volume::split_at_fraction(bool side_high, int split_pt, int spl
 }
 
 // Halve the grid_volume for symmetry exploitation...must contain icenter!
+grid_volume grid_volume::coarsen(int r) const {
+  if (r < 1) meep::abort("coarsen factor %d must be >= 1", r);
+  grid_volume gv(*this);
+  if (r == 1) return gv;
+  LOOP_OVER_DIRECTIONS(dim, d) {
+    if (num_direction(d) % r)
+      meep::abort("coarsen: %d cells along %s is not divisible by %d", num_direction(d),
+                  direction_name(d), r);
+    if (io.in_direction(d) % (2 * the_q * r))
+      meep::abort("coarsen: origin %d along %s is not on the coarsened lattice", io.in_direction(d),
+                  direction_name(d));
+  }
+  gv.a = a / r;
+  gv.inva = inva * r;
+  gv.the_q = the_q * r;
+  LOOP_OVER_DIRECTIONS(dim, d) { gv.num[((int)d) % 3] = num_direction(d) / r; }
+  gv.num_changed();
+  return gv;
+}
+
+grid_volume grid_volume::refine(int r) const {
+  if (r < 1) meep::abort("refine factor %d must be >= 1", r);
+  grid_volume gv(*this);
+  if (r == 1) return gv;
+  if (the_q % r)
+    meep::abort("refine: lattice is only %dx finer than this grid, cannot refine by %d", the_q, r);
+  gv.a = a * r;
+  gv.inva = inva / r;
+  gv.the_q = the_q / r;
+  LOOP_OVER_DIRECTIONS(dim, d) { gv.num[((int)d) % 3] = num_direction(d) * r; }
+  gv.num_changed();
+  return gv;
+}
+
+grid_volume grid_volume::with_lattice_refinement(int R) const {
+  if (R < 1) meep::abort("lattice refinement %d must be >= 1", R);
+  grid_volume gv(*this);
+  if (R == 1) return gv;
+  gv.the_q = the_q * R;
+  gv.set_origin(io * R);
+  return gv;
+}
+
 grid_volume grid_volume::halve(direction d) const {
   grid_volume retval(*this);
-  retval.set_num_direction(d, 1 + (big_corner().in_direction(d) - icenter().in_direction(d)) / 2);
+  retval.set_num_direction(d, 1 + (big_corner().in_direction(d) - icenter().in_direction(d)) /
+                                      (2 * the_q));
   retval.set_origin(d, icenter().in_direction(d) - 2);
   return retval;
 }
@@ -1083,7 +1138,7 @@ grid_volume grid_volume::pad(direction d) const {
 void grid_volume::pad_self(direction d) {
   num[d % 3] += 2; // Pad in both directions by one grid point.
   num_changed();
-  shift_origin(d, -2);
+  shift_origin(d, -2 * the_q);
 }
 
 ivec grid_volume::icenter() const {
@@ -1638,7 +1693,7 @@ void grid_volume::init_subvolume(ivec is, ivec ie, component c) {
   for (int i = 0; i < 3; i++)
     num[i] = 0;
   LOOP_OVER_DIRECTIONS(dim, d) {
-    set_num_direction(d, (ie - is).in_direction(d) / 2);
+    set_num_direction(d, (ie - is).in_direction(d) / (2 * the_q));
     origin.set_direction(d, is.in_direction(d) - iyee_shift(c).in_direction(d));
   }
   num_changed();

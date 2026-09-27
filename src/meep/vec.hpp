@@ -150,17 +150,18 @@ component first_field_component(field_type ft);
 
 #define LOOP_OVER_IVECS(gv, is, ie, idx)                                                           \
   for (ptrdiff_t loop_is1 = (is).yucky_val(0), loop_is2 = (is).yucky_val(1),                       \
-                 loop_is3 = (is).yucky_val(2), loop_n1 = ((ie).yucky_val(0) - loop_is1) / 2 + 1,   \
-                 loop_n2 = ((ie).yucky_val(1) - loop_is2) / 2 + 1,                                 \
-                 loop_n3 = ((ie).yucky_val(2) - loop_is3) / 2 + 1,                                 \
+                 loop_is3 = (is).yucky_val(2),                                                     \
+                 loop_n1 = ((ie).yucky_val(0) - loop_is1) / (2 * (gv).q()) + 1,                    \
+                 loop_n2 = ((ie).yucky_val(1) - loop_is2) / (2 * (gv).q()) + 1,                    \
+                 loop_n3 = ((ie).yucky_val(2) - loop_is3) / (2 * (gv).q()) + 1,                    \
                  loop_d1 = (gv).yucky_direction(0), loop_d2 = (gv).yucky_direction(1),             \
                  loop_d3 = (gv).yucky_direction(2),                                                \
                  loop_s1 = (gv).stride((meep::direction)loop_d1),                                  \
                  loop_s2 = (gv).stride((meep::direction)loop_d2),                                  \
                  loop_s3 = (gv).stride((meep::direction)loop_d3),                                  \
-                 idx0 = (is - (gv).little_corner()).yucky_val(0) / 2 * loop_s1 +                   \
-                        (is - (gv).little_corner()).yucky_val(1) / 2 * loop_s2 +                   \
-                        (is - (gv).little_corner()).yucky_val(2) / 2 * loop_s3,                    \
+                 idx0 = (is - (gv).little_corner()).yucky_val(0) / (2 * (gv).q()) * loop_s1 +      \
+                        (is - (gv).little_corner()).yucky_val(1) / (2 * (gv).q()) * loop_s2 +      \
+                        (is - (gv).little_corner()).yucky_val(2) / (2 * (gv).q()) * loop_s3,       \
                  loop_i1 = 0;                                                                      \
        loop_i1 < loop_n1; loop_i1++)                                                               \
     for (ptrdiff_t loop_i2 = 0; loop_i2 < loop_n2; loop_i2++)                                      \
@@ -200,17 +201,18 @@ component first_field_component(field_type ft);
 // can specify a custom clause
 #define PLOOP_OVER_IVECS_C(gv, is, ie, idx, clause)                                                \
   for (ptrdiff_t loop_is1 = (is).yucky_val(0), loop_is2 = (is).yucky_val(1),                       \
-                 loop_is3 = (is).yucky_val(2), loop_n1 = ((ie).yucky_val(0) - loop_is1) / 2 + 1,   \
-                 loop_n2 = ((ie).yucky_val(1) - loop_is2) / 2 + 1,                                 \
-                 loop_n3 = ((ie).yucky_val(2) - loop_is3) / 2 + 1,                                 \
+                 loop_is3 = (is).yucky_val(2),                                                     \
+                 loop_n1 = ((ie).yucky_val(0) - loop_is1) / (2 * (gv).q()) + 1,                    \
+                 loop_n2 = ((ie).yucky_val(1) - loop_is2) / (2 * (gv).q()) + 1,                    \
+                 loop_n3 = ((ie).yucky_val(2) - loop_is3) / (2 * (gv).q()) + 1,                    \
                  loop_d1 = (gv).yucky_direction(0), loop_d2 = (gv).yucky_direction(1),             \
                  loop_d3 = (gv).yucky_direction(2),                                                \
                  loop_s1 = (gv).stride((meep::direction)loop_d1),                                  \
                  loop_s2 = (gv).stride((meep::direction)loop_d2),                                  \
                  loop_s3 = (gv).stride((meep::direction)loop_d3),                                  \
-                 idx0 = (is - (gv).little_corner()).yucky_val(0) / 2 * loop_s1 +                   \
-                        (is - (gv).little_corner()).yucky_val(1) / 2 * loop_s2 +                   \
-                        (is - (gv).little_corner()).yucky_val(2) / 2 * loop_s3,                    \
+                 idx0 = (is - (gv).little_corner()).yucky_val(0) / (2 * (gv).q()) * loop_s1 +      \
+                        (is - (gv).little_corner()).yucky_val(1) / (2 * (gv).q()) * loop_s2 +      \
+                        (is - (gv).little_corner()).yucky_val(2) / (2 * (gv).q()) * loop_s3,       \
                  dummy_first = 0;                                                                  \
        dummy_first < 1; dummy_first++)                                                             \
   _Pragma(                                                                                         \
@@ -274,15 +276,16 @@ component first_field_component(field_type ft);
 // loop over indices idx from is to ie (inclusive) in gv
 #define S1LOOP_OVER_IVECS(gv, is, ie, idx)                                                         \
   for (ptrdiff_t loop_is1 = (is).yucky_val(0), loop_is2 = (is).yucky_val(1),                       \
-                 loop_is3 = (is).yucky_val(2), loop_n1 = ((ie).yucky_val(0) - loop_is1) / 2 + 1,   \
-                 loop_n2 = ((ie).yucky_val(1) - loop_is2) / 2 + 1,                                 \
-                 loop_n3 = ((ie).yucky_val(2) - loop_is3) / 2 + 1,                                 \
+                 loop_is3 = (is).yucky_val(2),                                                     \
+                 loop_n1 = ((ie).yucky_val(0) - loop_is1) / (2 * (gv).q()) + 1,                    \
+                 loop_n2 = ((ie).yucky_val(1) - loop_is2) / (2 * (gv).q()) + 1,                    \
+                 loop_n3 = ((ie).yucky_val(2) - loop_is3) / (2 * (gv).q()) + 1,                    \
                  loop_d1 = (gv).yucky_direction(0), loop_d2 = (gv).yucky_direction(1),             \
                  loop_s1 = (gv).stride((meep::direction)loop_d1),                                  \
                  loop_s2 = (gv).stride((meep::direction)loop_d2), loop_s3 = 1,                     \
-                 idx0 = (is - (gv).little_corner()).yucky_val(0) / 2 * loop_s1 +                   \
-                        (is - (gv).little_corner()).yucky_val(1) / 2 * loop_s2 +                   \
-                        (is - (gv).little_corner()).yucky_val(2) / 2 * loop_s3,                    \
+                 idx0 = (is - (gv).little_corner()).yucky_val(0) / (2 * (gv).q()) * loop_s1 +      \
+                        (is - (gv).little_corner()).yucky_val(1) / (2 * (gv).q()) * loop_s2 +      \
+                        (is - (gv).little_corner()).yucky_val(2) / (2 * (gv).q()) * loop_s3,       \
                  loop_i1 = 0;                                                                      \
        loop_i1 < loop_n1; loop_i1++)                                                               \
     for (int loop_i2 = 0; loop_i2 < loop_n2; loop_i2++)                                            \
@@ -313,15 +316,16 @@ component first_field_component(field_type ft);
 // loop over indices idx from is to ie (inclusive) in gv
 #define PS1LOOP_OVER_IVECS(gv, is, ie, idx)                                                        \
   for (ptrdiff_t loop_is1 = (is).yucky_val(0), loop_is2 = (is).yucky_val(1),                       \
-                 loop_is3 = (is).yucky_val(2), loop_n1 = ((ie).yucky_val(0) - loop_is1) / 2 + 1,   \
-                 loop_n2 = ((ie).yucky_val(1) - loop_is2) / 2 + 1,                                 \
-                 loop_n3 = ((ie).yucky_val(2) - loop_is3) / 2 + 1,                                 \
+                 loop_is3 = (is).yucky_val(2),                                                     \
+                 loop_n1 = ((ie).yucky_val(0) - loop_is1) / (2 * (gv).q()) + 1,                    \
+                 loop_n2 = ((ie).yucky_val(1) - loop_is2) / (2 * (gv).q()) + 1,                    \
+                 loop_n3 = ((ie).yucky_val(2) - loop_is3) / (2 * (gv).q()) + 1,                    \
                  loop_d1 = (gv).yucky_direction(0), loop_d2 = (gv).yucky_direction(1),             \
                  loop_s1 = (gv).stride((meep::direction)loop_d1),                                  \
                  loop_s2 = (gv).stride((meep::direction)loop_d2), loop_s3 = 1,                     \
-                 idx0 = (is - (gv).little_corner()).yucky_val(0) / 2 * loop_s1 +                   \
-                        (is - (gv).little_corner()).yucky_val(1) / 2 * loop_s2 +                   \
-                        (is - (gv).little_corner()).yucky_val(2) / 2 * loop_s3,                    \
+                 idx0 = (is - (gv).little_corner()).yucky_val(0) / (2 * (gv).q()) * loop_s1 +      \
+                        (is - (gv).little_corner()).yucky_val(1) / (2 * (gv).q()) * loop_s2 +      \
+                        (is - (gv).little_corner()).yucky_val(2) / (2 * (gv).q()) * loop_s3,       \
                  dummy_first = 0;                                                                  \
        dummy_first < 1; dummy_first++)                                                             \
   _Pragma("omp parallel for collapse(2)") for (ptrdiff_t loop_i1 = 0; loop_i1 < loop_n1;           \
@@ -358,15 +362,15 @@ component first_field_component(field_type ft);
 
 #define IVEC_LOOP_ILOC(gv, iloc)                                                                   \
   meep::ivec iloc((gv).dim);                                                                       \
-  iloc.set_direction(meep::direction(loop_d1), loop_is1 + 2 * loop_i1);                            \
-  iloc.set_direction(meep::direction(loop_d2), loop_is2 + 2 * loop_i2);                            \
-  iloc.set_direction(meep::direction(loop_d3), loop_is3 + 2 * loop_i3)
+  iloc.set_direction(meep::direction(loop_d1), loop_is1 + 2 * (gv).q() * loop_i1);                 \
+  iloc.set_direction(meep::direction(loop_d2), loop_is2 + 2 * (gv).q() * loop_i2);                 \
+  iloc.set_direction(meep::direction(loop_d3), loop_is3 + 2 * (gv).q() * loop_i3)
 
 #define IVEC_LOOP_LOC(gv, loc)                                                                     \
   meep::vec loc((gv).dim);                                                                         \
-  loc.set_direction(meep::direction(loop_d1), (0.5 * loop_is1 + loop_i1) * (gv).inva);             \
-  loc.set_direction(meep::direction(loop_d2), (0.5 * loop_is2 + loop_i2) * (gv).inva);             \
-  loc.set_direction(meep::direction(loop_d3), (0.5 * loop_is3 + loop_i3) * (gv).inva)
+  loc.set_direction(meep::direction(loop_d1), (0.5 * loop_is1 / (gv).q() + loop_i1) * (gv).inva);  \
+  loc.set_direction(meep::direction(loop_d2), (0.5 * loop_is2 / (gv).q() + loop_i2) * (gv).inva);  \
+  loc.set_direction(meep::direction(loop_d3), (0.5 * loop_is3 / (gv).q() + loop_i3) * (gv).inva)
 
 // integration weight for using LOOP_OVER_IVECS with field::integrate
 #define IVEC_LOOP_WEIGHT1x(s0, s1, e0, e1, i, n, dir)                                              \
@@ -1021,6 +1025,21 @@ public:
   ndim dim;
   double a, inva /* = 1/a */;
 
+  /* Coarsening relative to the global lattice, which is pinned to the finest
+     resolution around, so that an ivec means the same point in every chunk.
+     One cell spans 2*q lattice units; a Yee half-cell offset is q. */
+  int q() const { return the_q; }
+  /* Resolution of the lattice: the finest anywhere, and the one that sets dt
+     since all chunks step in lockstep.  `a` stays this grid's own. */
+  double a_lattice() const { return a * the_q; }
+  /* Same region sampled r times more coarsely; a_lattice() is unchanged. */
+  grid_volume coarsen(int r) const;
+  /* Inverse of coarsen(r); needs q divisible by r. */
+  grid_volume refine(int r) const;
+  /* Relabel against an R times finer lattice without resampling: q and io
+     scale by R, so nothing physical moves.  Makes room for refined chunks. */
+  grid_volume with_lattice_refinement(int R) const;
+
   void print() const;
   ptrdiff_t stride(direction d) const { return the_stride[d]; };
   int num_direction(direction d) const { return num[((int)d) % 3]; };
@@ -1052,7 +1071,7 @@ public:
     return n;
   }
   size_t nowned(component c) const;
-  vec operator[](const ivec &p) const { return p * (0.5 * inva); };
+  vec operator[](const ivec &p) const { return p * (0.5 * inva / the_q); };
   ptrdiff_t index(component, const ivec &) const;
   ivec round_vec(const vec &) const;
   void interpolate(component, const vec &, ptrdiff_t indices[8], double weights[8]) const;
@@ -1100,7 +1119,7 @@ public:
   /* differs from little_owned_corner in that it doesn't count
      "ownership" of the r=0 origin for Dcyl, which is updated separately */
   ivec little_owned_corner0(component c) const {
-    return ivec(little_corner() + one_ivec(dim) * 2 - iyee_shift(c));
+    return ivec(little_corner() + one_ivec(dim) * (2 * the_q) - iyee_shift(c));
   }
 
   ivec little_owned_corner(component c) const;
@@ -1135,7 +1154,7 @@ public:
     if (c == Dielectric || c == Permeability ||
         ((is_electric(c) || is_D(c)) && d == component_direction(c)) ||
         ((is_magnetic(c) || is_B(c)) && d != component_direction(c)))
-      out.set_direction(d, 1);
+      out.set_direction(d, the_q);
     return out;
   }
 
@@ -1172,6 +1191,7 @@ private:
     set_strides();
   }
   int num[3];
+  int the_q = 1;
   ptrdiff_t the_stride[5];
   size_t the_ntot;
 };

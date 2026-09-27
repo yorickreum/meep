@@ -2412,8 +2412,9 @@ struct split_plane {
 // Moveable and copyable.
 class binary_partition {
 public:
-  // Constructs a new leaf node with id `_id`.
-  explicit binary_partition(int _id);
+  // Constructs a new leaf node with id `_id`, refined by `_refine_factor`
+  // relative to the resolution the user asked for.
+  explicit binary_partition(int _id, int _refine_factor = 1);
   // Constructs a new internal node with subvolumes `left_tree` and `right_tree`, separated by
   // `_split_plane`. Required: (left_tree != nullptr && right_tree != nullptr) or Meep will abort.
   // Takes ownership of `left_tree` and `right_tree`.
@@ -2424,6 +2425,10 @@ public:
   bool is_leaf() const;
   // Returns the leaf node ID iff is_leaf() == true.
   int get_proc_id() const;
+  // Returns the leaf's refinement factor iff is_leaf() == true.
+  int get_refine_factor() const;
+  // Deepest refinement in this tree; 1 if nothing is refined.
+  int max_refinement() const;
   // Returns the split plane iff is_leaf() == false.
   const split_plane &get_plane() const;
   // Returns a pointer to the left subtree node iff is_leaf() == false.
@@ -2433,6 +2438,7 @@ public:
 
 private:
   int proc_id;
+  int refine_factor;
   split_plane plane;
   std::unique_ptr<binary_partition> left;
   std::unique_ptr<binary_partition> right;

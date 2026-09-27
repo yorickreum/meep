@@ -248,6 +248,8 @@ struct src_vol_chunkloop_data {
   complex<double> amp;
   src_time *src;
   vec center;
+  int ndelta;     // directions in which the source is a delta function
+  bool point_src; // delta in every direction
 };
 
 /* Adding source volumes can be treated as a kind of "integration"
@@ -269,12 +271,46 @@ static void src_vol_chunkloop(fields_chunk *fc, int ichunk, component c, ivec is
   (void)dV1; // grid_volume weighting is included in data->amp
   (void)ichunk;
 
+  // one grid point of this chunk spans 2*q lattice units
   size_t npts = 1;
-  LOOP_OVER_DIRECTIONS(is.dim, d) { npts *= (ie.in_direction(d) - is.in_direction(d)) / 2 + 1; }
+  LOOP_OVER_DIRECTIONS(is.dim, d) {
+    npts *= (ie.in_direction(d) - is.in_direction(d)) / (2 * fc->gv.q()) + 1;
+  }
+
+  // correct units for a delta-function J, on the grid that receives it
+  complex<double> amp = data->amp * conj(shift_phase);
+  for (int k = 0; k < data->ndelta; ++k)
+    amp *= fc->gv.a;
+
+  if (data->point_src) {
+    /* Interpolate onto this chunk's own grid.  The lattice-based weights
+       handed to us are laid out per lattice position, but this loop visits
+       only every q-th of those, so a coarse chunk would collect a fraction of
+       them.  interpolate() works on the chunk grid and zeroes points the chunk
+       does not own, so chunks divide the weight correctly. */
+    ptrdiff_t indices[8];
+    double weights[8];
+    fc->gv.interpolate(c, data->center, indices, weights);
+    std::vector<ptrdiff_t> pt_index;
+    std::vector<complex<double> > pt_amp;
+    for (int k = 0; k < 8 && weights[k]; ++k) {
+      complex<double> a = weights[k] * amp * data->A(vec(data->center - data->center));
+      if (is_D(c) && fc->s->chi1inv[c - Dx + Ex][component_direction(c)])
+        a /= fc->s->chi1inv[c - Dx + Ex][component_direction(c)][indices[k]];
+      if (is_B(c) && fc->s->chi1inv[c - Bx + Hx][component_direction(c)])
+        a /= fc->s->chi1inv[c - Bx + Hx][component_direction(c)][indices[k]];
+      pt_index.push_back(indices[k]);
+      pt_amp.push_back(a);
+    }
+    if (!pt_index.empty()) {
+      field_type ft = is_H_or_B(c) ? B_stuff : D_stuff;
+      fc->add_source(ft, src_vol(c, data->src, std::move(pt_index), std::move(pt_amp)));
+    }
+    return;
+  }
+
   std::vector<ptrdiff_t> index_array(npts);
   std::vector<complex<double> > amps_array(npts);
-
-  complex<double> amp = data->amp * conj(shift_phase);
 
   direction cd = component_direction(c);
 
@@ -496,10 +532,15 @@ void fields::add_volume_source(component c, const src_time &src, const volume &w
   src_vol_chunkloop_data data;
   data.A = A ? A : one;
   data.amp = amp;
+  data.ndelta = 0;
+  int nsized = 0;
   LOOP_OVER_DIRECTIONS(gv.dim, d) {
-    if (where.in_direction(d) == 0.0 && !nosize_direction(d)) // delta-fun
-      data.amp *= gv.a; // correct units for J delta-function amplitude
+    if (where.in_direction(d) == 0.0 && !nosize_direction(d))
+      ++data.ndelta; // delta-fun; scaled by the chunk's a in the chunkloop
+    else
+      ++nsized;
   }
+  data.point_src = (nsized == 0 && data.ndelta > 0);
   sources = src.add_to(sources, &data.src);
   data.center = (where.get_min_corner() + where.get_max_corner()) * 0.5;
   loop_in_chunks(src_vol_chunkloop, (void *)&data, where, c, false);

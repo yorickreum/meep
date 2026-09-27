@@ -249,6 +249,28 @@ ivec fields::vec2diel_ceil(const vec &pt, double a, const ivec &equal_shift) {
   return ipt;
 }
 
+/* vec2diel_floor/ceil land on the odd lattice points of the finest grid.  A
+   grid_volume of coarsening q has its centred points at q*(1 + 2n), so scale. */
+static ivec vec2diel_floor_q(const vec &pt, double a, int q, const ivec &equal_shift) {
+  ivec ipt(pt.dim);
+  LOOP_OVER_DIRECTIONS(pt.dim, d) {
+    ipt.set_direction(d, q * (1 + 2 * int(floor(pt.in_direction(d) * a - .5))));
+    if (ipt.in_direction(d) == pt.in_direction(d))
+      ipt.set_direction(d, ipt.in_direction(d) + equal_shift.in_direction(d));
+  }
+  return ipt;
+}
+
+static ivec vec2diel_ceil_q(const vec &pt, double a, int q, const ivec &equal_shift) {
+  ivec ipt(pt.dim);
+  LOOP_OVER_DIRECTIONS(pt.dim, d) {
+    ipt.set_direction(d, q * (1 + 2 * int(ceil(pt.in_direction(d) * a - .5))));
+    if (ipt.in_direction(d) == pt.in_direction(d))
+      ipt.set_direction(d, ipt.in_direction(d) + equal_shift.in_direction(d));
+  }
+  return ipt;
+}
+
 static inline int iabs(int i) { return (i < 0 ? -i : i); }
 
 /* Integration weights at boundaries (c.f. long comment at top).   */
@@ -256,17 +278,18 @@ static inline int iabs(int i) { return (i < 0 ? -i : i); }
 /* as a separate routine so we can call it from get_array_metadata.*/
 void compute_boundary_weights(grid_volume gv, const volume &where, ivec &is, ivec &ie,
                               bool snap_empty_dimensions, vec &s0, vec &e0, vec &s1, vec &e1) {
+  const int cell = 2 * gv.q(); // lattice units spanned by one cell of gv
   LOOP_OVER_DIRECTIONS(gv.dim, d) {
     double w0, w1;
-    w0 = 1. - where.in_direction_min(d) * gv.a + 0.5 * is.in_direction(d);
-    w1 = 1. + where.in_direction_max(d) * gv.a - 0.5 * ie.in_direction(d);
-    if (ie.in_direction(d) >= is.in_direction(d) + 3 * 2) {
+    w0 = 1. - where.in_direction_min(d) * gv.a + (double)is.in_direction(d) / cell;
+    w1 = 1. + where.in_direction_max(d) * gv.a - (double)ie.in_direction(d) / cell;
+    if (ie.in_direction(d) >= is.in_direction(d) + 3 * cell) {
       s0.set_direction(d, w0 * w0 / 2);
       s1.set_direction(d, 1 - (1 - w0) * (1 - w0) / 2);
       e0.set_direction(d, w1 * w1 / 2);
       e1.set_direction(d, 1 - (1 - w1) * (1 - w1) / 2);
     }
-    else if (ie.in_direction(d) == is.in_direction(d) + 2 * 2) {
+    else if (ie.in_direction(d) == is.in_direction(d) + 2 * cell) {
       s0.set_direction(d, w0 * w0 / 2);
       s1.set_direction(d, 1 - (1 - w0) * (1 - w0) / 2 - (1 - w1) * (1 - w1) / 2);
       e0.set_direction(d, w1 * w1 / 2);
@@ -285,7 +308,7 @@ void compute_boundary_weights(grid_volume gv, const volume &where, ivec &is, ive
       e0.set_direction(d, w1);
       e1.set_direction(d, w0);
     }
-    else if (ie.in_direction(d) == is.in_direction(d) + 1 * 2) {
+    else if (ie.in_direction(d) == is.in_direction(d) + cell) {
       s0.set_direction(d, w0 * w0 / 2 - (1 - w1) * (1 - w1) / 2);
       e0.set_direction(d, w1 * w1 / 2 - (1 - w0) * (1 - w0) / 2);
       s1.set_direction(d, e0.in_direction(d));
@@ -352,11 +375,12 @@ void fields::loop_in_chunks(field_chunkloop chunkloop, void *chunkloop_data, con
   vec yee_c(gv.yee_shift(Centered) - gv.yee_shift(cgrid));
   ivec iyee_c(gv.iyee_shift(Centered) - gv.iyee_shift(cgrid));
   volume wherec(where + yee_c);
-  ivec is(vec2diel_floor(wherec.get_min_corner(), gv.a, zero_ivec(gv.dim)) - iyee_c);
-  ivec ie(vec2diel_ceil(wherec.get_max_corner(), gv.a, zero_ivec(gv.dim)) - iyee_c);
+  ivec is_g(vec2diel_floor_q(wherec.get_min_corner(), gv.a, gv.q(), zero_ivec(gv.dim)) - iyee_c);
+  ivec ie_g(vec2diel_ceil_q(wherec.get_max_corner(), gv.a, gv.q(), zero_ivec(gv.dim)) - iyee_c);
 
-  vec s0(gv.dim), e0(gv.dim), s1(gv.dim), e1(gv.dim);
-  compute_boundary_weights(gv, where, is, ie, snap_empty_dimensions, s0, e0, s1, e1);
+  vec s0_g(gv.dim), e0_g(gv.dim), s1_g(gv.dim), e1_g(gv.dim);
+  compute_boundary_weights(gv, where, is_g, ie_g, snap_empty_dimensions, s0_g, e0_g, s1_g, e1_g);
+  const ivec is(is_g), ie(ie_g);
 
   int original_vol = 1;
   LOOP_OVER_DIRECTIONS(gv.dim, d) {
@@ -418,6 +442,22 @@ void fields::loop_in_chunks(field_chunkloop chunkloop, void *chunkloop_data, con
       for (int i = 0; i < num_chunks; ++i) {
         if (!chunks[i]->is_mine()) continue;
         grid_volume gvu(chunks[i]->gv);
+
+        /* Bound and weight `where` on this chunk's own grid.  Identical to the
+           global answer when nothing is refined, and the only correct one when
+           something is: the loop below visits this chunk's grid points. */
+        ivec is(is_g), ie(ie_g);
+        vec s0(s0_g), e0(e0_g), s1(s1_g), e1(e1_g);
+        if (gvu.q() != gv.q()) {
+          const ivec iyee_u(gvu.iyee_shift(Centered) - gvu.iyee_shift(cgrid));
+          const volume whereu(where + vec(gvu.yee_shift(Centered) - gvu.yee_shift(cgrid)));
+          is =
+              vec2diel_floor_q(whereu.get_min_corner(), gvu.a, gvu.q(), zero_ivec(gv.dim)) - iyee_u;
+          ie = vec2diel_ceil_q(whereu.get_max_corner(), gvu.a, gvu.q(), zero_ivec(gv.dim)) - iyee_u;
+          compute_boundary_weights(gvu, where, is, ie, snap_empty_dimensions, s0, e0, s1, e1);
+        }
+        const int cell_u = 2 * gvu.q();
+
         ivec _iscoS(S.transform(gvu.little_owned_corner(cS), sn));
         ivec _iecoS(S.transform(gvu.big_owned_corner(cS), sn));
         ivec iscoS(max(user_volume.little_owned_corner(cgrid), min(_iscoS, _iecoS))),
@@ -457,14 +497,14 @@ void fields::loop_in_chunks(field_chunkloop chunkloop, void *chunkloop_data, con
               s0c.set_direction(d, s0.in_direction(dS));
               s1c.set_direction(d, s1.in_direction(dS));
             }
-            else if (iscS.in_direction(dS) == is.in_direction(dS) + 2) {
+            else if (iscS.in_direction(dS) == is.in_direction(dS) + cell_u) {
               s0c.set_direction(d, s1.in_direction(dS));
             }
             if (iecS.in_direction(dS) == ie.in_direction(dS)) {
               e0c.set_direction(d, e0.in_direction(dS));
               e1c.set_direction(d, e1.in_direction(dS));
             }
-            else if (iecS.in_direction(dS) == ie.in_direction(dS) - 2) {
+            else if (iecS.in_direction(dS) == ie.in_direction(dS) - cell_u) {
               e0c.set_direction(d, e1.in_direction(dS));
             }
             if (iecS.in_direction(dS) == iscS.in_direction(dS)) {
@@ -474,7 +514,7 @@ void fields::loop_in_chunks(field_chunkloop chunkloop, void *chunkloop_data, con
               s1c.set_direction(d, w);
               e1c.set_direction(d, w);
             }
-            else if (iecS.in_direction(dS) == iscS.in_direction(dS) + 1 * 2) {
+            else if (iecS.in_direction(dS) == iscS.in_direction(dS) + 1 * cell_u) {
               double w = std::min(s0c.in_direction(d), e1c.in_direction(d));
               s0c.set_direction(d, w);
               e1c.set_direction(d, w);
@@ -482,7 +522,7 @@ void fields::loop_in_chunks(field_chunkloop chunkloop, void *chunkloop_data, con
               s1c.set_direction(d, w);
               e0c.set_direction(d, w);
             }
-            else if (iecS.in_direction(dS) == iscS.in_direction(dS) + 2 * 2) {
+            else if (iecS.in_direction(dS) == iscS.in_direction(dS) + 2 * cell_u) {
               double w = std::min(s1c.in_direction(d), e1c.in_direction(d));
               s1c.set_direction(d, w);
               e1c.set_direction(d, w);
@@ -505,10 +545,10 @@ void fields::loop_in_chunks(field_chunkloop chunkloop, void *chunkloop_data, con
           // Determine integration "volumes" dV0 and dV1;
           double dV0 = 1.0, dV1 = 0.0;
           LOOP_OVER_DIRECTIONS(gv.dim, d) {
-            if (where.in_direction(d) > 0.0) dV0 *= gv.inva;
+            if (where.in_direction(d) > 0.0) dV0 *= chunks[i]->gv.inva;
           }
           if (gv.dim == Dcyl) {
-            dV1 = dV0 * 2 * pi * gv.inva;
+            dV1 = dV0 * 2 * pi * chunks[i]->gv.inva;
             dV0 *= 2 * pi * fabs((S.transform(chunks[i]->gv[isc], sn) + shift).in_direction(R));
           }
 
@@ -532,7 +572,12 @@ void fields::loop_in_chunks(field_chunkloop chunkloop, void *chunkloop_data, con
     } while (ishift != min_ishift);
   }
   int vol_sum_all = sum_to_all(vol_sum);
-  if (use_symmetry && vol_sum_all != original_vol)
+  // Both counts assume one point per two lattice units, which a coarser chunk
+  // does not satisfy, so they count different sets and need not agree.
+  bool one_resolution = true;
+  for (int i = 0; i < num_chunks; i++)
+    if (chunks[i]->gv.q() != gv.q()) one_resolution = false;
+  if (use_symmetry && one_resolution && vol_sum_all != original_vol)
     master_printf("WARNING vol mismatch:, original_vol %i, looped vol_sum %i \n", original_vol,
                   vol_sum_all);
 }

@@ -43,6 +43,8 @@ void fields::step_db(field_type ft) {
 
 bool fields_chunk::step_db(field_type ft) {
   bool allocated_u = false;
+  // dtdx = dt * a of this chunk; dt comes from the finest resolution
+  const realnum dtdx = Courant / gv.q();
 
   for (const auto &sub_gv : gvs_tiled) {
     DOCMP FOR_FT_COMPONENTS(ft, cc) {
@@ -122,7 +124,7 @@ bool fields_chunk::step_db(field_type ft) {
           }
 
         STEP_CURL(the_f, cc, f_p, f_m, stride_p, stride_m, gv, sub_gv.little_owned_corner0(cc),
-                  sub_gv.big_corner(), Courant, dsig, s->sig[dsig], s->kap[dsig], s->siginv[dsig],
+                  sub_gv.big_corner(), dtdx, dsig, s->sig[dsig], s->kap[dsig], s->siginv[dsig],
                   f_u[cc][cmp], dsigu, s->sig[dsigu], s->kap[dsigu], s->siginv[dsigu], dt,
                   s->conductivity[cc][d_c], s->condinv[cc][d_c], f_cond[cc][cmp]);
 
@@ -136,10 +138,10 @@ bool fields_chunk::step_db(field_type ft) {
             k2 = -k2;
           }
           STEP_BFAST(the_f, cc, f_p, f_m, stride_p, stride_m, gv, sub_gv.little_owned_corner0(cc),
-                     sub_gv.big_corner(), Courant, dsig, s->sig[dsig], s->kap[dsig],
-                     s->siginv[dsig], f_u[cc][cmp], dsigu, s->sig[dsigu], s->kap[dsigu],
-                     s->siginv[dsigu], dt, s->conductivity[cc][d_c], s->condinv[cc][d_c],
-                     f_cond[cc][cmp], f_bfast[cc][cmp], k1, k2);
+                     sub_gv.big_corner(), dtdx, dsig, s->sig[dsig], s->kap[dsig], s->siginv[dsig],
+                     f_u[cc][cmp], dsigu, s->sig[dsigu], s->kap[dsigu], s->siginv[dsigu], dt,
+                     s->conductivity[cc][d_c], s->condinv[cc][d_c], f_cond[cc][cmp],
+                     f_bfast[cc][cmp], k1, k2);
         }
       }
     }
@@ -197,7 +199,7 @@ bool fields_chunk::step_db(field_type ft) {
         // increment of the array index in the grid_volume in the R direction
         // corresponds to a change of 0.5*Δr in real space.
         const realnum the_m =
-            2 * m * (1 - 2 * cmp) * (1 - 2 * (ft == B_stuff)) * (1 - 2 * (d_c == R)) * Courant;
+            2 * m * (1 - 2 * cmp) * (1 - 2 * (ft == B_stuff)) * (1 - 2 * (d_c == R)) * dtdx;
 
         // 8 special cases of the same loop (sigh):
         if (siginv) { // PML in f update

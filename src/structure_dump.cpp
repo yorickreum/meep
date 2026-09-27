@@ -495,17 +495,32 @@ void structure::set_chiP_from_file(h5file *file, const char *dataset, field_type
   }
 }
 
-binary_partition::binary_partition(int _proc_id) : proc_id(_proc_id), plane{NO_DIRECTION, 0.0} {}
+binary_partition::binary_partition(int _proc_id, int _refine_factor)
+    : proc_id(_proc_id), refine_factor(_refine_factor), plane{NO_DIRECTION, 0.0} {
+  if (_refine_factor < 1) meep::abort("refine factor %d must be >= 1", _refine_factor);
+}
+
+int binary_partition::get_refine_factor() const {
+  if (!is_leaf()) meep::abort("only leaf nodes have a refinement factor");
+  return refine_factor;
+}
+
+int binary_partition::max_refinement() const {
+  if (is_leaf()) return refine_factor;
+  const int l = left->max_refinement(), r = right->max_refinement();
+  return l > r ? l : r;
+}
 
 binary_partition::binary_partition(const split_plane &_split_plane,
                                    std::unique_ptr<binary_partition> &&left_tree,
                                    std::unique_ptr<binary_partition> &&right_tree)
-    : proc_id(-1), plane(_split_plane), left(std::move(left_tree)), right(std::move(right_tree)) {
+    : proc_id(-1), refine_factor(1), plane(_split_plane), left(std::move(left_tree)),
+      right(std::move(right_tree)) {
   if (!left || !right) { meep::abort("Binary partition tree is required to be full"); }
 }
 
 binary_partition::binary_partition(const binary_partition &other)
-    : proc_id(other.proc_id), plane(other.plane) {
+    : proc_id(other.proc_id), refine_factor(other.refine_factor), plane(other.plane) {
   if (!other.is_leaf()) {
     left.reset(new binary_partition(*other.left));
     right.reset(new binary_partition(*other.right));
@@ -538,7 +553,8 @@ void split_by_binarytree(grid_volume gvol, std::vector<grid_volume> &result_gvs,
                          std::vector<int> &result_ids, const binary_partition *bp) {
   // reached a leaf
   if (bp->is_leaf()) {
-    result_gvs.push_back(gvol);
+    const int r = bp->get_refine_factor();
+    result_gvs.push_back(r > 1 ? gvol.refine(r) : gvol);
     result_ids.push_back(bp->get_proc_id());
     return;
   }

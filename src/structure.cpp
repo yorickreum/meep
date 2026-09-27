@@ -104,11 +104,25 @@ void structure::choose_chunkdivision(const grid_volume &thegv, int desired_num_c
   gv = thegv;
   v = gv.surroundings();
   S = s;
-  a = gv.a;
-  dt = Courant / a;
 
+  // NB choose_chunkdivision halves gv and v for each exploited symmetry, so it
+  // must see the real ones; relabel afterwards.
   if (_bp) { bp.reset(new binary_partition(*_bp)); }
   else { bp = meep::choose_chunkdivision(gv, v, desired_num_chunks, s); }
+
+  // Lattice must be fine enough for the deepest refinement.  Relabeling only:
+  // `a` still reports what the user asked for; a_lattice(), and so dt, moves.
+  const int lattice_refinement = bp->max_refinement();
+  // a refining partition tiles the whole cell, not the symmetry-reduced one
+  if (lattice_refinement > 1 && s.multiplicity() > 1)
+    meep::abort("mesh refinement does not support symmetries yet; drop them");
+  if (lattice_refinement > 1) {
+    user_volume = user_volume.with_lattice_refinement(lattice_refinement);
+    gv = gv.with_lattice_refinement(lattice_refinement);
+  }
+
+  a = gv.a;
+  dt = Courant / gv.a_lattice();
 
   // create the chunks:
   std::vector<grid_volume> chunk_volumes;
@@ -278,16 +292,20 @@ void structure::check_chunks() {
     for (int j = i + 1; j < num_chunks; j++)
       if (chunks[i]->gv.intersect_with(chunks[j]->gv, &vol_intersection))
         meep::abort("chunks[%d] intersects with chunks[%d]\n", i, j);
+  // Compare covered volume in lattice units, not grid points: a refined chunk
+  // packs more points into the same space.  One cell spans q^dim lattice cells.
   size_t sum = 0;
   for (int i = 0; i < num_chunks; i++) {
-    size_t grid_points = 1;
-    LOOP_OVER_DIRECTIONS(chunks[i]->gv.dim, d) { grid_points *= chunks[i]->gv.num_direction(d); }
-    sum += grid_points;
+    size_t lattice_cells = 1;
+    LOOP_OVER_DIRECTIONS(chunks[i]->gv.dim, d) {
+      lattice_cells *= (size_t)chunks[i]->gv.num_direction(d) * chunks[i]->gv.q();
+    }
+    sum += lattice_cells;
   }
-  size_t v_grid_points = 1;
-  LOOP_OVER_DIRECTIONS(gv.dim, d) { v_grid_points *= gv.num_direction(d); }
-  if (sum != v_grid_points)
-    meep::abort("v_grid_points = %zd, sum(chunks) = %zd\n", v_grid_points, sum);
+  size_t v_lattice_cells = 1;
+  LOOP_OVER_DIRECTIONS(gv.dim, d) { v_lattice_cells *= (size_t)gv.num_direction(d) * gv.q(); }
+  if (sum != v_lattice_cells)
+    meep::abort("v_lattice_cells = %zd, sum(chunks) = %zd\n", v_lattice_cells, sum);
 }
 
 void structure::add_to_effort_volumes(const grid_volume &new_effort_volume, double extra_effort) {
@@ -510,13 +528,14 @@ void structure::use_pml(direction d, boundary_side b, double dx) {
   if (dx <= 0.0) return;
   grid_volume pml_volume = gv;
   pml_volume.set_num_direction(d, int(dx * user_volume.a + 1 + 0.5)); // FIXME: exact value?
+  const int step = 2 * gv.q(); // lattice units per cell of gv
   const int v_to_user_shift =
-      (gv.big_corner().in_direction(d) - user_volume.big_corner().in_direction(d)) / 2;
+      (gv.big_corner().in_direction(d) - user_volume.big_corner().in_direction(d)) / step;
   if (b == Low) { pml_volume.set_origin(d, user_volume.little_corner().in_direction(d)); }
 
   if (b == High) {
     pml_volume.set_origin(d, user_volume.big_corner().in_direction(d) -
-                                 pml_volume.num_direction(d) * 2);
+                                 pml_volume.num_direction(d) * step);
     pml_volume.set_num_direction(d, pml_volume.num_direction(d) + v_to_user_shift);
   }
   add_to_effort_volumes(pml_volume, 0.60); // FIXME: manual value for pml effort
@@ -647,7 +666,7 @@ void structure_chunk::use_pml(direction d, double dx, double bloc, double Rasymp
   // way that "x > 0" is computed below.
   bool found_pml = false;
   for (int i = gv.little_corner().in_direction(d); i <= gv.big_corner().in_direction(d) + 1; ++i)
-    if (pml_x(i, dx, bloc, a) > 0) {
+    if (pml_x(i, dx, bloc, gv.a_lattice()) > 0) {
       found_pml = true;
       break;
     }
@@ -662,7 +681,9 @@ void structure_chunk::use_pml(direction d, double dx, double bloc, double Rasymp
     }
     LOOP_OVER_FIELD_DIRECTIONS(gv.dim, dd) {
       if (!sig[dd]) {
-        int spml = (dd == d) ? (2 * gv.num_direction(d) + 2) : 1;
+        int spml = (dd == d)
+                       ? (gv.big_corner().in_direction(d) - gv.little_corner().in_direction(d) + 2)
+                       : 1;
         sigsize[dd] = spml;
         sig[dd] = new realnum[spml];
         kap[dd] = new realnum[spml];
@@ -678,7 +699,7 @@ void structure_chunk::use_pml(direction d, double dx, double bloc, double Rasymp
     for (int i = gv.little_corner().in_direction(d); i <= gv.big_corner().in_direction(d) + 1;
          ++i) {
       int idx = i - gv.little_corner().in_direction(d);
-      double x = pml_x(i, dx, bloc, a);
+      double x = pml_x(i, dx, bloc, gv.a_lattice());
       if (x > 0) {
         double s = pml_profile(x / dx, pml_profile_data);
         sig[d][idx] = 0.5 * dt * prefac * s;
@@ -779,11 +800,12 @@ structure_chunk::structure_chunk(const structure_chunk *o) : v(o->v) {
   // Copy over the PML conductivity arrays:
   if (is_mine()) FOR_DIRECTIONS(d) {
       if (o->sig[d]) {
-        sig[d] = new realnum[2 * gv.num_direction(d) + 1];
-        kap[d] = new realnum[2 * gv.num_direction(d) + 1];
-        siginv[d] = new realnum[2 * gv.num_direction(d) + 1];
+        // sized as the original, which counts in lattice units
         sigsize[d] = o->sigsize[d];
-        for (int i = 0; i < 2 * gv.num_direction(d) + 1; i++) {
+        sig[d] = new realnum[sigsize[d]];
+        kap[d] = new realnum[sigsize[d]];
+        siginv[d] = new realnum[sigsize[d]];
+        for (int i = 0; i < sigsize[d]; i++) {
           sig[d][i] = o->sig[d][i];
           kap[d][i] = o->kap[d][i];
           siginv[d][i] = o->siginv[d][i];
@@ -912,7 +934,7 @@ structure_chunk::structure_chunk(const grid_volume &thegv, const volume &vol_lim
   FOR_FIELD_TYPES(ft) { chiP[ft] = NULL; }
   gv = thegv;
   a = thegv.a;
-  dt = Courant / a;
+  dt = Courant / thegv.a_lattice();
   the_proc = pr;
   the_is_mine = n_proc() == my_rank();
 

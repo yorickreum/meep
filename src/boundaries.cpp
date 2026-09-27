@@ -123,13 +123,14 @@ void fields::use_bloch(const vec &k) {
 }
 
 ivec fields::ilattice_vector(direction d) const {
+  const int s = 2 * user_volume.q(); // a cell in lattice units
   switch (user_volume.dim) {
-    case D1: return ivec(2 * user_volume.nz());
+    case D1: return ivec(s * user_volume.nz());
     case Dcyl: return iveccyl(0, 2 * user_volume.nz()); // Only Z direction here
     case D2:
       switch (d) {
-        case X: return ivec(user_volume.nx() * 2, 0);
-        case Y: return ivec(0, user_volume.ny() * 2);
+        case X: return ivec(user_volume.nx() * s, 0);
+        case Y: return ivec(0, user_volume.ny() * s);
         case Z: // fall-thru
         case R: // fall-thru
         case P: // fall-thru
@@ -137,9 +138,9 @@ ivec fields::ilattice_vector(direction d) const {
       }
     case D3:
       switch (d) {
-        case X: return ivec(user_volume.nx() * 2, 0, 0);
-        case Y: return ivec(0, user_volume.ny() * 2, 0);
-        case Z: return ivec(0, 0, user_volume.nz() * 2);
+        case X: return ivec(user_volume.nx() * s, 0, 0);
+        case Y: return ivec(0, user_volume.ny() * s, 0);
+        case Z: return ivec(0, 0, user_volume.nz() * s);
         case R: // fall-thru
         case P: // fall-thru
         case NO_DIRECTION: break;
@@ -370,6 +371,9 @@ static connect_phase connect_phase_from_phase(std::complex<double> thephase) {
 }
 
 void fields::connect_the_chunks() {
+  for (int i = 1; i < num_chunks; i++)
+    if (chunks[i]->gv.q() != chunks[0]->gv.q())
+      meep::abort("chunks of different resolution need an interface between them");
   /* For some of the chunks, H==B, and we definitely don't need to
      send B between two such chunks.   We'll still send B when
      the recipient has H != B, since the recipient needs to get B
