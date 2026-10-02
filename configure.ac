@@ -577,7 +577,9 @@ else
     if test $have_python = yes; then
 
       AC_MSG_CHECKING([for Python include directory])
-      pinc=`echo "import sysconfig; print(sysconfig.get_path('include'))" | $PYTHON - 2>/dev/null`
+      # tr: a native Windows Python reports C:\... paths, whose backslashes
+      # the shell and make would strip from an unquoted -I.
+      pinc=`echo "import sysconfig; print(sysconfig.get_path('include'))" | $PYTHON - 2>/dev/null | tr '\\\\' /`
       AC_MSG_RESULT([${pinc:-unknown}])
       test -n "$pinc" && PYTHON_INCLUDES="-I$pinc"
       save_CPPFLAGS=$CPPFLAGS
@@ -587,7 +589,7 @@ else
 
       if test $have_python = yes; then
         AC_MSG_CHECKING([for Numpy include directory])
-        pinc=`echo "import numpy; print (numpy.get_include())" | $PYTHON - 2>/dev/null`
+        pinc=`echo "import numpy; print (numpy.get_include())" | $PYTHON - 2>/dev/null | tr '\\\\' /`
         AC_MSG_RESULT([${pinc:-unknown}])
         test -n "$pinc" && PYTHON_INCLUDES="$PYTHON_INCLUDES -I$pinc"
         CPPFLAGS="$save_CPPFLAGS $PYTHON_INCLUDES"
@@ -639,10 +641,18 @@ case $host_os in
     PYPATH_SEP=";"
     if test x"$have_python" = xyes; then
       AC_MSG_CHECKING([for Python library to link extension modules against])
-      pyver=`$PYTHON -c "import sys; print('%d.%d' % sys.version_info[[:2]])" 2>/dev/null`
-      pylibdir=`$PYTHON -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR') or '')" 2>/dev/null`
-      test -n "$pylibdir" && PYTHON_LIBS="-L$pylibdir"
-      test -n "$pyver" && PYTHON_LIBS="$PYTHON_LIBS -lpython$pyver"
+      # MSYS2's Python has a LIBDIR holding libpython3.X.dll.a.  A python.org
+      # (MSVC) build has no LIBDIR; ld links its python3X.dll directly.
+      pydll=`$PYTHON -c "import os, sys; n = 'python%d%d' % sys.version_info[[:2]]; print(n if os.path.isfile(os.path.join(sys.base_prefix, n + '.dll')) else '')" 2>/dev/null`
+      if test -n "$pydll"; then
+        pylibdir=`$PYTHON -c "import sys; print(sys.base_prefix)" 2>/dev/null | tr '\\\\' /`
+        PYTHON_LIBS="-L$pylibdir -l$pydll"
+      else
+        pyver=`$PYTHON -c "import sys; print('%d.%d' % sys.version_info[[:2]])" 2>/dev/null`
+        pylibdir=`$PYTHON -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR') or '')" 2>/dev/null`
+        test -n "$pylibdir" && PYTHON_LIBS="-L$pylibdir"
+        test -n "$pyver" && PYTHON_LIBS="$PYTHON_LIBS -lpython$pyver"
+      fi
       AC_MSG_RESULT([${PYTHON_LIBS:-none}])
     fi
     ;;

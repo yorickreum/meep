@@ -8,16 +8,23 @@ The extensions are built against MPI (MPICH ABI).  libmpi is never vendored:
 it has to be the one the launcher uses, so the wheel depends on mpi4py to load
 it before _meep.so does.
 
+Windows is the exception: there is no MPICH-ABI runtime on PyPI for it, so the
+build is serial.  autotools runs under MSYS2's UCRT64 environment, whose
+mingw-w64 gcc shares python.org's C runtime (ucrtbase), and produces .pyd
+modules that link the interpreter's python3X.dll.
+
 Environment variables:
   MEEP_VERSION            override the version written into wheel metadata
   MEEP_DEPS_PREFIX        prefix where libctl/harminv/mpb were installed
   MEEP_CONFIGURE_ARGS     extra arguments appended to ./configure
   MEEP_BUILD_JOBS         parallelism for make (default: os.cpu_count())
+  MSYS2_ROOT              MSYS2 installation on Windows (default C:\\msys64)
 """
 
 import hashlib
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -83,8 +90,15 @@ def meep_version() -> str:
     return version + _RELEASE_TAGS[tag]
 
 
+def have(program: str) -> bool:
+    if WINDOWS:
+        cmd, env = msys_command(["command", "-v", program], None)
+        return subprocess.run(cmd, env=env, capture_output=True).returncode == 0
+    return shutil.which(program) is not None
+
+
 def require(program: str, hint: str) -> None:
-    if shutil.which(program) is None:
+    if not have(program):
         raise SystemExit(
             f"error: {program!r} is required to build Meep from source but was not "
             f"found on PATH.\n{hint}"
@@ -121,6 +135,37 @@ def configure_fingerprint(args) -> str:
 
 
 MACHO = sys.platform == "darwin"
+WINDOWS = sys.platform == "win32"
+MSYS2_ROOT = Path(os.environ.get("MSYS2_ROOT") or r"C:\msys64")
+
+
+def msys_command(cmd, env):
+    """Wrap cmd to run in an MSYS2 UCRT64 login shell, which puts its gcc,
+    make and sh on PATH without them leaking into the rest of the build.
+
+    The arguments are joined for a POSIX shell, so paths in them must already
+    use forward slashes: bash would read C:\\x as the escape \\x.
+    """
+    bash = MSYS2_ROOT / "usr" / "bin" / "bash.exe"
+    if not bash.is_file():
+        raise SystemExit(
+            f"error: building Meep on Windows needs MSYS2, and {bash} does not "
+            "exist. Install it from https://www.msys2.org or set MSYS2_ROOT."
+        )
+    env = dict(os.environ if env is None else env)
+    env["MSYSTEM"] = "UCRT64"
+    env["CHERE_INVOKING"] = "1"  # stay in cwd rather than $HOME
+    script = shlex.join(str(c) for c in cmd)
+    prefix = env.get("MEEP_DEPS_PREFIX")
+    if prefix:
+        # /etc/profile resets PKG_CONFIG_PATH, and configure finds harminv
+        # through it; PATH lets configure's test programs load the DLLs.
+        script = (
+            f"p=$(cygpath -u {shlex.quote(prefix)}); "
+            'export PKG_CONFIG_PATH="$p/lib/pkgconfig:$PKG_CONFIG_PATH" '
+            'PATH="$p/bin:$PATH"; ' + script
+        )
+    return [str(bash), "-lc", script], env
 
 
 def patchelf(*args) -> str:
@@ -158,6 +203,8 @@ def read_soname(lib: Path) -> str:
     ELF records a bare SONAME; Mach-O records a path whose basename is what
     delocate names the copy in .dylibs. The caller falls back to the file name.
     """
+    if WINDOWS:
+        return ""  # a DLL is asked for by its file name
     try:
         if MACHO:
             return Path(read_install_id(lib)).name
@@ -173,7 +220,16 @@ def strip_binaries(paths) -> None:
     loader rejects ("ELF load command address/offset not properly aligned"), and
     auditwheel's --strip does exactly that. Stripping first keeps the size win
     without the hazard, which is why the repair step does not pass --strip.
+
+    On Windows, where nothing rewrites the binaries afterwards, it is simply
+    the size win: gcc's debug info would otherwise ship inside the DLLs.
     """
+    if WINDOWS:
+        files = [p.as_posix() for p in paths if p.is_file()]
+        if files:
+            cmd, env = msys_command(["strip", "--strip-unneeded", *files], None)
+            subprocess.run(cmd, env=env, check=False)
+        return
     if not sys.platform.startswith("linux") or shutil.which("strip") is None:
         return
     for path in paths:
@@ -184,6 +240,8 @@ def strip_binaries(paths) -> None:
 def run(cmd, cwd, env=None) -> None:
     printable = " ".join(str(c) for c in cmd)
     print(f"[meep-build] (cd {cwd} && {printable})", flush=True)
+    if WINDOWS:
+        cmd, env = msys_command(cmd, env)
     subprocess.run([str(c) for c in cmd], cwd=str(cwd), env=env, check=True)
 
 
@@ -205,9 +263,10 @@ class build_ext(_build_ext):
             shutil.rmtree(target)
         # copy2 keeps the executable bit on the .so files.
         shutil.copytree(package_dir, target, copy_function=shutil.copy2)
-        strip_binaries(list(target.rglob("*.so")))
+        strip_binaries(list(target.rglob("*.pyd" if WINDOWS else "*.so")))
         self.stage_shared_libraries(package_dir.parent.parent)
-        self.install_mpi_preload(target)
+        if not WINDOWS:
+            self.install_mpi_preload(target)
 
     def install_mpi_preload(self, target: Path) -> None:
         """Make `import meep` load libmpi before _meep.so asks for it.
@@ -236,8 +295,11 @@ class build_ext(_build_ext):
 
         if not (HERE / "configure").exists():
             require("autoreconf", "Install autoconf, automake and libtool.")
+            # Without --symlink on Windows: MSYS2 would copy rather than link
+            # anyway, and native programs cannot follow its emulated links.
+            symlink = [] if WINDOWS else ["--symlink"]
             run(
-                ["autoreconf", "--verbose", "--install", "--symlink", "--force"],
+                ["autoreconf", "--verbose", "--install", *symlink, "--force"],
                 cwd=HERE,
             )
 
@@ -259,7 +321,9 @@ class build_ext(_build_ext):
             # together or not at all. A caller-chosen pair is left alone: on a
             # cluster it names the site MPI's wrappers.
             chosen = [var for var in ("CC", "CXX") if env.get(var)]
-            if not chosen:
+            if WINDOWS:
+                pass  # serial: configure picks UCRT64's gcc and g++
+            elif not chosen:
                 for wrapper in ("mpicc", "mpicxx"):
                     require(wrapper, "Install MPICH (pip install mpich).")
                 env["CC"], env["CXX"] = "mpicc", "mpicxx"
@@ -271,7 +335,11 @@ class build_ext(_build_ext):
                     f"wrappers of one MPI, or neither to use the mpicc and "
                     f"mpicxx on PATH."
                 )
-            run([HERE / "configure", *configure_args], cwd=builddir, env=env)
+            run(
+                [(HERE / "configure").as_posix(), *configure_args],
+                cwd=builddir,
+                env=env,
+            )
             stamp.write_text(fingerprint)
 
         jobs = os.environ.get("MEEP_BUILD_JOBS") or str(os.cpu_count() or 1)
@@ -296,11 +364,16 @@ class build_ext(_build_ext):
             "--enable-shared",
             "--disable-static",
             "--without-scheme",  # no Guile inside a wheel
-            # libmpi is never vendored: it must be the one the launcher uses.
-            "--with-mpi",
-            f"--prefix={builddir / 'install'}",
-            f"PYTHON={sys.executable}",
+            f"--prefix={(builddir / 'install').as_posix()}",
+            f"PYTHON={Path(sys.executable).as_posix()}",
         ]
+        if WINDOWS:
+            # Without it libtool looks for a shared -lmingw32, finds none, and
+            # silently builds every DLL as a static archive instead.
+            args.append("lt_cv_deplibs_check_method=pass_all")
+        else:
+            # libmpi is never vendored: it must be the one the launcher uses.
+            args.append("--with-mpi")
 
         # Only the SWIG wrappers see Python headers, so src/ compiles
         # identically for every interpreter and ccache serves the repeats.
@@ -311,20 +384,19 @@ class build_ext(_build_ext):
         if prefix:
             libctl = Path(prefix) / "share" / "libctl"
             if libctl.is_dir():
-                args.append(f"--with-libctl={libctl}")
+                args.append(f"--with-libctl={libctl.as_posix()}")
 
         args += self.split_extra_args()
         return args
 
     @staticmethod
     def split_extra_args() -> list:
-        import shlex
-
         return shlex.split(os.environ.get("MEEP_CONFIGURE_ARGS", ""))
 
     @staticmethod
     def stage_shared_libraries(builddir: Path) -> None:
-        """Copy libmeep/libpympb somewhere auditwheel and delocate can see.
+        """Copy libmeep/libpympb somewhere auditwheel, delocate and delvewheel
+        can see.
 
         Staged under the name consumers ask for (DT_NEEDED says libmeep.so.38,
         which .libs holds only as a symlink to libmeep.so.38.0.0), so the repair
@@ -337,7 +409,7 @@ class build_ext(_build_ext):
                 continue
             for lib in source.iterdir():
                 if lib.is_symlink() or not re.search(
-                    r"\.(so|dylib)(\.\d+)*$", lib.name
+                    r"\.(so|dylib)(\.\d+)*$|\.dll$", lib.name
                 ):
                     continue
                 dest = WHEEL_LIBS / (read_soname(lib) or lib.name)

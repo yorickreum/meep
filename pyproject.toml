@@ -3,8 +3,8 @@
 # The distribution and the import name are both `meep`. The Conda package is
 # named `pymeep`.
 #
-# The extensions are compiled with MPI; in a single process Meep behaves the
-# same way a build without MPI does.
+# The extensions are compiled with MPI, except on Windows; in a single process
+# Meep behaves the same way a build without MPI does.
 
 [build-system]
 # numpy is a build requirement: without numpy/arrayobject.h, configure only
@@ -27,6 +27,7 @@ classifiers = [
   "Intended Audience :: Science/Research",
   "Operating System :: POSIX :: Linux",
   "Operating System :: MacOS :: MacOS X",
+  "Operating System :: Microsoft :: Windows",
   "Programming Language :: C++",
   "Programming Language :: Python :: 3",
   "Topic :: Scientific/Engineering :: Physics",
@@ -42,11 +43,12 @@ dependencies = [
   "h5py",
   # libmpi is not vendored, so importing mpi4py is what loads it before
   # _meep.so asks for it. mpi4py also performs MPI_Init.
-  "mpi4py",
+  "mpi4py; sys_platform != 'win32'",
   # The MPICH-ABI runtime the extensions are built against. On a cluster,
   # uninstall it and point mpi4py at the site MPI: any MPICH derivative
   # (MVAPICH, Intel MPI, HPE Cray MPICH) provides the libmpi.so.12 expected.
-  "mpich",
+  # It publishes no Windows wheels, which is why the Windows build is serial.
+  "mpich; sys_platform != 'win32'",
 ]
 
 [project.optional-dependencies]
@@ -62,8 +64,9 @@ Issues = "https://github.com/NanoComp/meep/issues"
 [tool.cibuildwheel]
 build = "cp310-* cp311-* cp312-* cp313-*"
 # musllinux would need the whole dependency stack rebuilt against musl, and the
-# 32-bit/big-endian targets have no realistic FDTD users.
-skip = "*-musllinux_* *_i686 *_ppc64le *_s390x"
+# 32-bit/big-endian targets have no realistic FDTD users. MSYS2 has no
+# toolchain for 32-bit Windows any more, nor a gfortran for Windows on Arm.
+skip = "*-musllinux_* *_i686 *_ppc64le *_s390x *-win32 *-win_arm64"
 build-frontend = "build"
 # mpiexec comes from the `mpich` dependency, so the smoke test can run the
 # wheel under a real launcher, the only way to catch ranks that never join one
@@ -118,3 +121,21 @@ PKG_CONFIG_PATH = "$HOME/meep-deps/lib/pkgconfig:/opt/homebrew/lib/pkgconfig:/us
 select = "*-macosx_arm64"
 inherit.environment = "append"
 environment.MACOSX_DEPLOYMENT_TARGET = "14.0"
+
+[tool.cibuildwheel.windows]
+# Runs build_deps.sh in MSYS2's UCRT64 shell (preinstalled on the GitHub
+# runners at C:\msys64). cmd.exe runs this line, hence no quoting.
+before-all = "C:\\msys64\\usr\\bin\\bash.exe -l tools/wheels/build_deps.sh"
+before-build = "pip install delvewheel"
+# delvewheel copies every DLL _meep.pyd needs (libmeep, MPB, HDF5, the gcc and
+# gfortran runtimes, ...) into meep.libs and mangles their names, so they
+# cannot collide with h5py's HDF5 or another package's libstdc++.
+repair-wheel-command = "delvewheel repair --add-path C:/meep-wheel-libs;C:/meep-deps/bin;C:/msys64/ucrt64/bin -w {dest_dir} {wheel}"
+
+[tool.cibuildwheel.windows.environment]
+MSYSTEM = "UCRT64"
+CHERE_INVOKING = "1" # keep the login shell in the project directory
+MEEP_DEPS_PREFIX = "C:/meep-deps"
+MEEP_WHEEL_LIBS = "C:/meep-wheel-libs"
+CPPFLAGS = "-IC:/meep-deps/include"
+LDFLAGS = "-LC:/meep-deps/lib"

@@ -18,7 +18,9 @@ import meep as mp
 print(f"meep {mp.__version__} on {sys.platform}, python {sys.version.split()[0]}")
 
 # The wheel carries only an MPI build, so this must be true even in one process.
-assert mp.with_mpi(), "this wheel was not built with MPI"
+# Windows is the exception: no MPICH-ABI runtime exists there, so it is serial.
+WINDOWS = sys.platform == "win32"
+assert mp.with_mpi() != WINDOWS, f"with_mpi() is {mp.with_mpi()} on {sys.platform}"
 assert mp.count_processors() == 1, mp.count_processors()
 
 from meep import mpb  # noqa: E402
@@ -93,7 +95,8 @@ print(f"|alpha+|^2 = {forward ** 2:.4g}")
 # Serial HDF5 would still work, writing one rank at a time through h5file.cpp's
 # exclusive-access path, so nothing but this check would notice it.
 package = Path(mp.__file__).parent
-# delocate keeps them inside the package, auditwheel in a sibling <dist>.libs.
+# delocate keeps them inside the package, auditwheel and delvewheel in a
+# sibling <dist>.libs.
 # Other distributions vendor an HDF5 of their own into site-packages, h5py
 # above all, so look only where this wheel's copy can be.
 lib_dirs = [package / ".dylibs"] + [
@@ -101,6 +104,10 @@ lib_dirs = [package / ".dylibs"] + [
 ]
 vendored = [lib for d in lib_dirs for lib in sorted(d.glob("libhdf5*"))]
 assert vendored, f"no vendored libhdf5 found in {[str(d) for d in lib_dirs]}"
+if WINDOWS:
+    print("hdf5: " + ", ".join(lib.name for lib in vendored) + " (serial build)")
+    print("smoke test passed")
+    sys.exit(0)
 for lib in vendored:
     assert hasattr(
         ctypes.CDLL(str(lib)), "H5Pset_fapl_mpio"

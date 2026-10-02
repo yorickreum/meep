@@ -37,10 +37,41 @@ jobs:
           - name: macOS arm64
             os: macos-14
             archs: arm64
+          # Serial, built with MSYS2's UCRT64 mingw-w64 toolchain; see setup.py.
+          - name: Windows x86_64
+            os: windows-latest
+            archs: AMD64
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # version.sh reads the Git history for alpha builds
+      # release: false uses the runner's own C:\msys64, the path pyproject.toml
+      # names. The package list matches install_system_deps_mingw in
+      # tools/wheels/build_deps.sh, which then has nothing left to do.
+      - if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          release: false
+          install: >-
+            make
+            m4
+            curl
+            tar
+            autoconf-wrapper
+            autoconf2.72
+            automake-wrapper
+            automake1.18
+            libtool
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-gcc-fortran
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-swig
+            mingw-w64-ucrt-x86_64-hdf5
+            mingw-w64-ucrt-x86_64-gsl
+            mingw-w64-ucrt-x86_64-fftw
+            mingw-w64-ucrt-x86_64-openblas
       - uses: pypa/cibuildwheel@v3.2.0
         env:
           CIBW_ARCHS: ${{ matrix.archs }}

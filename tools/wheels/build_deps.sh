@@ -10,6 +10,10 @@
 # Everything is built shared, because auditwheel/delocate vendor whatever ends
 # up linked into _meep.so.
 #
+# On Windows this runs in MSYS2's UCRT64 shell. There the build is serial (no
+# MPICH, packaged serial HDF5), and libctl and harminv need the same
+# adjustments as in .github/workflows/build-ci-windows.yml.
+#
 # Nothing here needs Guile: the wheel has no Scheme interface, and libctl only
 # needs Guile to generate utils/geom-ctl-io.c, which the release tarball ships
 # ready-made. Hence tarballs below rather than Git checkouts.
@@ -22,6 +26,13 @@
 set -euo pipefail
 
 PREFIX="${MEEP_DEPS_PREFIX:-/usr/local}"
+case "$(uname -s)" in
+  MINGW* | MSYS*)
+    MINGW=1
+    PREFIX="$(cygpath -u "${PREFIX}")" # C:/x would split PATH at its colon
+    ;;
+  *) MINGW= ;;
+esac
 LIBCTL_VERSION="${LIBCTL_VERSION:-4.7.1}"   # >= 4.7.0 for mesh geometry (configure.ac)
 HARMINV_VERSION="${HARMINV_VERSION:-1.4.3}"
 MPB_VERSION="${MPB_VERSION:-1.12.0}"
@@ -84,6 +95,22 @@ install_system_deps_linux() {
   fi
 }
 
+# The workflow installs these with msys2/setup-msys2 already, which makes this a
+# no-op there; it is for a local build. No `pacman -Syu`: updating the MSYS2
+# runtime kills the shell running this script.
+install_system_deps_mingw() {
+  if [ -n "${MEEP_SKIP_SYSTEM_DEPS:-}" ]; then
+    log "skipping system libraries (MEEP_SKIP_SYSTEM_DEPS set)"
+    return
+  fi
+  log "installing system libraries (pacman)"
+  local p=mingw-w64-ucrt-x86_64
+  pacman -S --needed --noconfirm \
+    make m4 curl tar autoconf-wrapper autoconf2.72 automake-wrapper automake1.18 libtool \
+    $p-gcc $p-gcc-fortran $p-pkgconf $p-swig \
+    $p-hdf5 $p-gsl $p-fftw $p-openblas
+}
+
 install_system_deps_macos() {
   if [ -n "${MEEP_SKIP_SYSTEM_DEPS:-}" ]; then
     log "skipping system libraries (MEEP_SKIP_SYSTEM_DEPS set)"
@@ -107,10 +134,13 @@ fetch_and_build() {
     tar xzf "${WORKDIR}/${name}.tar.gz" -C "${WORKDIR}"
   fi
 
+  # Without pass_all, libtool on Windows looks for a shared -lmingw32, finds
+  # none, and silently builds a static archive instead of a DLL.
   pushd "${WORKDIR}/${name}" >/dev/null
-  ./configure --prefix="${PREFIX}" --enable-shared --disable-static "$@"
-  make -j"${NPROC}"
-  make install
+  ./configure --prefix="${PREFIX}" --enable-shared --disable-static \
+    ${MINGW:+lt_cv_deplibs_check_method=pass_all} "$@"
+  make -j"${NPROC}" ${MAKE_VARS:+"${MAKE_VARS}"}
+  make install ${MAKE_VARS:+"${MAKE_VARS}"}
   popd >/dev/null
 }
 
@@ -196,10 +226,33 @@ install_mpich() {
   "${PREFIX}/bin/mpicc" -show || true
 }
 
+main_mingw() {
+  install_system_deps_mingw
+
+  # libctlgeom must be a DLL: libmeep and libpympb both link it, and a static
+  # copy in each gives duplicate symbols. Its Makefile.am lacks -no-undefined,
+  # so supply it on the make command line.
+  MAKE_VARS="libctlgeom_la_LDFLAGS=-no-undefined -avoid-version" \
+    fetch_and_build libctl "${LIBCTL_VERSION}" --without-guile --without-python
+
+  # harminv lacks -no-undefined too, but only libmeep links it, so a static
+  # archive does.
+  fetch_and_build harminv "${HARMINV_VERSION}" --disable-shared --enable-static \
+    --with-blas=openblas --with-lapack=openblas
+
+  # MPB without HDF5, as in build-ci-windows.yml; Meep does its own HDF5 I/O.
+  fetch_and_build mpb "${MPB_VERSION}" --without-libctl --without-hdf5 \
+    --with-hermitian-eps
+
+  log "dependency prefix contents"
+  ls -1 "${PREFIX}/bin" "${PREFIX}/lib" 2>/dev/null | sort -u | head -40 || true
+}
+
 main() {
   case "$(uname -s)" in
     Linux)  install_system_deps_linux ;;
     Darwin) install_system_deps_macos ;;
+    MINGW* | MSYS*) main_mingw; return ;;
     *) echo "unsupported platform: $(uname -s)" >&2; exit 1 ;;
   esac
 

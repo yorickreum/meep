@@ -125,15 +125,17 @@ Binary wheels are published to PyPI as [meep](https://pypi.org/project/meep/), s
 pip install meep
 ```
 
-Wheels are available on CPython 3.10 and later for Linux (x86-64 and aarch64) and for Apple silicon macOS (14 and later). They bundle their own copies of MPB, Harminv, libctlgeom, HDF5, FFTW, GSL and LAPACK, and pull in `mpi4py` and `mpich` from PyPI, so nothing else has to be installed first.
+Wheels are available on CPython 3.10 and later for Linux (x86-64 and aarch64), for Apple silicon macOS (14 and later) and for 64-bit Windows. They bundle their own copies of MPB, Harminv, libctlgeom, HDF5, FFTW, GSL and LAPACK, and pull in `mpi4py` and `mpich` from PyPI, so nothing else has to be installed first.
 
 There is no Intel macOS wheel: the vendored Homebrew bottles fix how old a macOS the wheel may claim, and the oldest Intel runner still available would put that floor at macOS 15 — past the point where the machines wanting it are still supported. Intel Macs are served by the [Conda package](#conda-packages) or a [build from source](Build_From_Source.md).
 
 The wheels do **not** include the Scheme interface, which must be [built from source](Build_From_Source.md). This matches the Conda packages.
 
+The Windows wheel is serial: there is no MPICH-ABI runtime for Windows on PyPI, so it is built without MPI and does not depend on `mpi4py` or `mpich`.
+
 ### Parallel (MPI) simulations
 
-The wheels are compiled with MPI. In a single process Meep behaves the same way a build without MPI does, so `python foo.py` needs nothing special:
+The Linux and macOS wheels are compiled with MPI. In a single process Meep behaves the same way a build without MPI does, so `python foo.py` needs nothing special:
 
 ```bash
 pip install meep
