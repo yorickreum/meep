@@ -335,11 +335,12 @@ class build_ext(_build_ext):
                     f"wrappers of one MPI, or neither to use the mpicc and "
                     f"mpicxx on PATH."
                 )
-            run(
-                [(HERE / "configure").as_posix(), *configure_args],
-                cwd=builddir,
-                env=env,
-            )
+            configure = HERE / "configure"
+            if WINDOWS:
+                # Relative, so $srcdir has no drive colon: configure splits its
+                # aux-dir search list at ":", turning D:/x/build-aux into "D".
+                configure = Path(os.path.relpath(configure, builddir))
+            run([configure.as_posix(), *configure_args], cwd=builddir, env=env)
             stamp.write_text(fingerprint)
 
         jobs = os.environ.get("MEEP_BUILD_JOBS") or str(os.cpu_count() or 1)
@@ -377,7 +378,7 @@ class build_ext(_build_ext):
 
         # Only the SWIG wrappers see Python headers, so src/ compiles
         # identically for every interpreter and ccache serves the repeats.
-        if shutil.which("ccache"):
+        if have("ccache"):
             args.append("--enable-ccache")
 
         prefix = os.environ.get("MEEP_DEPS_PREFIX")
